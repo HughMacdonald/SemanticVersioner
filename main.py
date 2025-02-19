@@ -67,6 +67,8 @@ class FilamentVersioner:
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             print(f"Branch not found: {self._main_branch}")
+            branch_names = [branch.name for branch in self._repository.branches]
+            print(f"Available branches: {', '.join(branch_names)}")
             return False
 
         return True
@@ -342,11 +344,16 @@ def main(argv: list[str]) -> int:
     if not args:
         return 1
 
+    print(f"Repository: {args.repository}")
+    print(f"Main branch: {args.main_branch}")
+
     versioner = FilamentVersioner(args.repository, args.main_branch)
     if not versioner.initialize():
         return 1
 
     if args.dev_branch:
+        print(f"Dev branch: {args.dev_branch}")
+        print(f"Dev suffix: {args.dev_suffix}")
         if not versioner.add_dev_tag(args.dev_branch, args.dev_suffix):
             return 1
     else:
