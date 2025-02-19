@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import sys
 from enum import IntEnum
@@ -266,7 +267,6 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     parser.add_argument(
         "-r",
         "--repository",
-        required=True,
         help="Path to the repository to work on",
     )
     parser.add_argument(
@@ -307,7 +307,7 @@ def main(argv: list[str]) -> int:
     if not args:
         return 1
 
-    versioner = FilamentVersioner(args.repository, args.main_branch)
+    versioner = FilamentVersioner(args.repository or os.getcwd(), args.main_branch)
     if not versioner.initialize():
         return 1
 
