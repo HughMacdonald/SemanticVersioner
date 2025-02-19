@@ -2,7 +2,7 @@ import argparse
 import re
 import sys
 from enum import IntEnum
-from typing import Optional
+from typing import Optional, Tuple
 
 import git
 import semver
@@ -27,7 +27,11 @@ class FilamentVersioner:
 
     _version_prefix = "v"
 
-    def __init__(self, repository: str, main_branch: str):
+    def __init__(
+        self,
+        repository: str,
+        main_branch: str,
+    ):
         self._repository = git.Repo(repository)
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
@@ -56,7 +60,11 @@ class FilamentVersioner:
 
         return self._add_version_tag_to_commit(self._main_head_commit, new_dev_version)
 
-    def add_dev_tag(self, dev_branch: str, dev_suffix: str) -> bool:
+    def add_dev_tag(
+        self,
+        dev_branch: str,
+        dev_suffix: str,
+    ) -> bool:
         dev_head_commit = self._get_branch_head_commit(dev_branch)
         (latest_main_version, latest_main_version_commit) = self._get_latest_version(
             self._main_head_commit
@@ -70,14 +78,16 @@ class FilamentVersioner:
             return False
 
         common_ancestors = self._repository.merge_base(
-            self._main_head_commit, dev_head_commit,
+            self._main_head_commit,
+            dev_head_commit,
         )
         if len(common_ancestors) != 1:
             print("Could not find a single common ancestor")
             return False
 
         version_update_type = self._get_version_update_type(
-            common_ancestors[0], dev_head_commit,
+            common_ancestors[0],
+            dev_head_commit,
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
@@ -94,7 +104,9 @@ class FilamentVersioner:
         return self._add_version_tag_to_commit(dev_head_commit, new_dev_version)
 
     def _add_version_tag_to_commit(
-        self, commit: git.Commit, version: semver.Version
+        self,
+        commit: git.Commit,
+        version: semver.Version,
     ) -> bool:
         tag_name = self._version_prefix + str(version)
 
@@ -114,7 +126,9 @@ class FilamentVersioner:
         return None
 
     def _get_version_update_type(
-        self, start_commit: git.Commit, end_commit: git.Commit
+        self,
+        start_commit: git.Commit,
+        end_commit: git.Commit,
     ) -> VersionUpdateEnum:
         version_update = VersionUpdateEnum.NONE
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
@@ -129,7 +143,9 @@ class FilamentVersioner:
         return version_update
 
     def _get_latest_version(
-        self, commit: git.Commit, include_prerelease: bool = True
+        self,
+        commit: git.Commit,
+        include_prerelease: bool = True,
     ) -> Tuple[Optional[semver.Version], Optional[git.Commit]]:
         tag_name = self._repository.git.describe(commit, tags=True, abbrev=0)
         if tag_name.startswith(self._version_prefix):
@@ -154,7 +170,8 @@ class FilamentVersioner:
 
     @staticmethod
     def _bump_version(
-        previous_version: semver.Version, update_type: VersionUpdateEnum
+        previous_version: semver.Version,
+        update_type: VersionUpdateEnum,
     ) -> semver.Version:
         if update_type == VersionUpdateEnum.PATCH:
             return previous_version.bump_patch()
