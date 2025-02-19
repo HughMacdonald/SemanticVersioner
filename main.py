@@ -204,7 +204,7 @@ class FilamentVersioner:
                 return branch.commit
 
         remote = self._repository.remote()
-        remote.fetch()
+        remote.fetch(tags=True)
         remote_name = remote.name
         remote_branches = remote.refs
         for branch in remote_branches:
