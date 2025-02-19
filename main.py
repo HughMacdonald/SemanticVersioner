@@ -197,7 +197,9 @@ class FilamentVersioner:
         :param branch_name: The branch name to get the commit for
         :return: The commit object, if the branch exists, otherwise None
         """
+        print(f"Searching for branch: {branch_name}")
         for branch in self._repository.branches:
+            print(f"Checking branch {branch.name}")
             if branch.name == branch_name:
                 return branch.commit
 
@@ -205,6 +207,7 @@ class FilamentVersioner:
         remote_name = remote.name
         remote_branches = remote.refs
         for branch in remote_branches:
+            print(f"Checking branch {branch.name}")
             name_bits = branch.name.split("/")
             if len(name_bits) != 2:
                 continue
