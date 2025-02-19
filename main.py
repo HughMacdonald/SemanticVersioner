@@ -267,29 +267,32 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     parser.add_argument(
         "-r",
         "--repository",
+        default=os.getcwd(),
         help="Path to the repository to work on",
     )
     parser.add_argument(
         "-m",
         "--main-branch",
-        required=True,
+        default=os.getenv("MAIN_BRANCH", "main"),
         help="The name of the main branch",
     )
     parser.add_argument(
         "-d",
         "--dev-branch",
+        default=os.getenv("DEV_BRANCH"),
         help="The name of the dev branch (if applying a dev version tag)",
     )
     parser.add_argument(
         "-s",
         "--dev-suffix",
-        default="dev",
+        default=os.getenv("DEV_SUFFIX", "dev"),
         help="The suffix to use for the dev branch",
     )
     parser.add_argument(
         "-p",
         "--push",
         action="store_true",
+        default=os.getenv("PUSH"),
         help="Push any new tags to the remote repository",
     )
 
@@ -307,7 +310,7 @@ def main(argv: list[str]) -> int:
     if not args:
         return 1
 
-    versioner = FilamentVersioner(args.repository or os.getcwd(), args.main_branch)
+    versioner = FilamentVersioner(args.repository, args.main_branch)
     if not versioner.initialize():
         return 1
 
