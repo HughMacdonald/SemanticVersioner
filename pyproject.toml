@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "filamentversioner"
+version = "0.1.0"
+description = ""
+authors = ["Hugh Macdonald <hugh@filament-software.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+gitpython = "^3.1.44"
+semver = "==3.0.4"
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^25.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
