@@ -40,10 +40,6 @@ runs:
       with:
         python-version: 3.11
 
-    - name: Update package list
-      run: apt-get update
-      shell: bash
-
     - name: Install system dependencies
       run: apt-get install -y python3-dev libpq-dev
       shell: bash
