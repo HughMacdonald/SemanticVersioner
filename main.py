@@ -299,7 +299,7 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     parser.add_argument(
         "-r",
         "--repository",
-        default=os.getcwd(),
+        default=os.getenv("GITHUB_WORKSPACE", os.getcwd()),
         help="Path to the repository to work on",
     )
     parser.add_argument(
