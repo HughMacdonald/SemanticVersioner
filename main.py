@@ -16,15 +16,37 @@ class VersionUpdateEnum(IntEnum):
 
 
 class FilamentVersioner:
+    # Regular expressions to be run on commit messages to determine which
+    # version part to update
     _version_update_regexes = [
-        (re.compile("^[Ff][Ii][Xx](\(.*\))?:"), VersionUpdateEnum.PATCH),
-        (re.compile("^[Ff][Ee][Aa][Tt](\(.*\))?:"), VersionUpdateEnum.MINOR),
         (
+            # Commit message starting with (case insensitive):
+            # fix(anything):
+            # fix:
+            re.compile("^[Ff][Ii][Xx](\(.*\))?:"),
+            VersionUpdateEnum.PATCH,
+        ),
+        (
+            # Commit message starting with (case insensitive):
+            # feat(anything):
+            # feat:
+            re.compile("^[Ff][Ee][Aa][Tt](\(.*\))?:"),
+            VersionUpdateEnum.MINOR,
+        ),
+        (
+            # Commit message starting with (case insensitive):
+            # feat(anything)!:
+            # feat!:
+            # fix(anything)!:
+            # fix!:
             re.compile("^([Ff][Ee][Aa][Tt]|[Ff][Ii][Xx])(\(.*\))?!:"),
             VersionUpdateEnum.MAJOR,
         ),
     ]
 
+    # The string to be used as the prefix for all versions. The tags are
+    # expected to be this, followed by the string representation of the
+    # semver.Version object
     _version_prefix = "v"
 
     def __init__(
@@ -37,6 +59,10 @@ class FilamentVersioner:
         self._main_head_commit: Optional[git.Commit] = None
 
     def initialize(self) -> bool:
+        """
+        Initialize the object
+        :return: Whether the initialization was successful
+        """
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             print(f"Branch not found: {self._main_branch}")
@@ -45,6 +71,10 @@ class FilamentVersioner:
         return True
 
     def add_main_tag(self) -> bool:
+        """
+        Add a new version tag to the main branch of this repository
+        :return: Whether the process was successful
+        """
         (latest_version, latest_version_commit) = self._get_latest_version(
             self._main_head_commit, False
         )
@@ -65,6 +95,12 @@ class FilamentVersioner:
         dev_branch: str,
         dev_suffix: str,
     ) -> bool:
+        """
+        Add a new version tag to the dev branch of this repository
+        :param dev_branch: The dev branch name
+        :param dev_suffix: The suffix to use for dev tags
+        :return: Whether the process was successful
+        """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
         (latest_main_version, latest_main_version_commit) = self._get_latest_version(
             self._main_head_commit
@@ -108,6 +144,12 @@ class FilamentVersioner:
         commit: git.Commit,
         version: semver.Version,
     ) -> bool:
+        """
+        Add a version tag to a specific commit
+        :param commit: The commit to add the tag to
+        :param version: The version to use for the tag name
+        :return: Whether this process was successful
+        """
         tag_name = self._version_prefix + str(version)
 
         if tag_name in [tag.name for tag in self._repository.tags]:
@@ -119,6 +161,11 @@ class FilamentVersioner:
         return True
 
     def _get_branch_head_commit(self, branch_name: str) -> Optional[git.Commit]:
+        """
+        Get the head commit from the specified branch
+        :param branch_name: The branch name to get the commit for
+        :return: The commit object, if the branch exists, otherwise None
+        """
         for branch in self._repository.branches:
             if branch.name == branch_name:
                 return branch.commit
@@ -130,6 +177,13 @@ class FilamentVersioner:
         start_commit: git.Commit,
         end_commit: git.Commit,
     ) -> VersionUpdateEnum:
+        """
+        Iterate over all commits between start_commit and end_commit to determine
+        what kind of version update should be applied
+        :param start_commit: The first commit to check from
+        :param end_commit: The last commit to check to
+        :return: The VersionUpdateEnum value specifying the type of version update
+        """
         version_update = VersionUpdateEnum.NONE
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
@@ -147,6 +201,13 @@ class FilamentVersioner:
         commit: git.Commit,
         include_prerelease: bool = True,
     ) -> Tuple[Optional[semver.Version], Optional[git.Commit]]:
+        """
+        Get the latest version going back in time from the specified commit
+        :param commit: The commit to work backwards from
+        :param include_prerelease: Whether to include versions with prerelease
+        values or not
+        :return: A Tuple containing the version and commit, or (None, None)
+        """
         tag_name = self._repository.git.describe(commit, tags=True, abbrev=0)
         if tag_name.startswith(self._version_prefix):
             try:
@@ -173,6 +234,12 @@ class FilamentVersioner:
         previous_version: semver.Version,
         update_type: VersionUpdateEnum,
     ) -> semver.Version:
+        """
+        Create a new semver.Version object with the appropriate element bumped
+        :param previous_version: The previous version to bump up
+        :param update_type: Which element of the previous version to bump
+        :return: The new version
+        """
         if update_type == VersionUpdateEnum.PATCH:
             return previous_version.bump_patch()
         elif update_type == VersionUpdateEnum.MINOR:
