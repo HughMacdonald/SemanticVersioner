@@ -139,6 +139,14 @@ class FilamentVersioner:
 
         return self._add_version_tag_to_commit(dev_head_commit, new_dev_version)
 
+    def push_tags(self) -> bool:
+        """
+        Push all tags to the remote repository
+        :return: Whether the process was successful
+        """
+        self._repository.git.push("origin", "--tags")
+        return True
+
     def _add_version_tag_to_commit(
         self,
         commit: git.Commit,
@@ -226,6 +234,9 @@ class FilamentVersioner:
             except ValueError:
                 if commit.parents:
                     return self._get_latest_version(commit.parents[0])
+        else:
+            if commit.parents:
+                return self._get_latest_version(commit.parents[0])
 
         return None, None
 
@@ -275,6 +286,12 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         default="dev",
         help="The suffix to use for the dev branch",
     )
+    parser.add_argument(
+        "-p",
+        "--push",
+        action="store_true",
+        help="Push any new tags to the remote repository",
+    )
 
     result = parser.parse_args(args)
 
@@ -299,6 +316,10 @@ def main(argv: list[str]) -> int:
             return 1
     else:
         if not versioner.add_main_tag():
+            return 1
+
+    if args.push:
+        if not versioner.push_tags():
             return 1
 
     return 0
