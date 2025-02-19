@@ -37,7 +37,6 @@ runs:
 
     - name: Set up Python
       uses: actions/setup-python@v5
-      shell: bash
       with:
         python-version: 3.11
 
@@ -51,7 +50,6 @@ runs:
 
     - name: Install Poetry
       uses: snok/install-poetry@v1
-      shell: bash
 
     - name: Install Python dependencies
       run: poetry -C ${GITHUB_ACTION_PATH} install --no-root
