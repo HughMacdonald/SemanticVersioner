@@ -1,4 +1,5 @@
 import argparse
+import os
 import re
 import sys
 from enum import IntEnum
@@ -86,9 +87,19 @@ class FilamentVersioner:
             latest_version_commit,
             self._main_head_commit,
         )
-        new_dev_version = self._bump_version(latest_version, version_update_type)
+        self._output_result(
+            "previous-version",
+            self._get_version_string(latest_version),
+        )
 
-        return self._add_version_tag_to_commit(self._main_head_commit, new_dev_version)
+        new_version = self._bump_version(latest_version, version_update_type)
+
+        self._output_result(
+            "new-version",
+            self._get_version_string(new_version),
+        )
+
+        return self._add_version_tag_to_commit(self._main_head_commit, new_version)
 
     def add_dev_tag(
         self,
@@ -126,6 +137,11 @@ class FilamentVersioner:
             dev_head_commit,
         )
 
+        self._output_result(
+            "previous-version",
+            self._get_version_string(latest_dev_version),
+        )
+
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
 
         if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
@@ -136,6 +152,11 @@ class FilamentVersioner:
             new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
         else:
             new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+
+        self._output_result(
+            "new-version",
+            self._get_version_string(new_dev_version),
+        )
 
         return self._add_version_tag_to_commit(dev_head_commit, new_dev_version)
 
@@ -158,7 +179,7 @@ class FilamentVersioner:
         :param version: The version to use for the tag name
         :return: Whether this process was successful
         """
-        tag_name = self._version_prefix + str(version)
+        tag_name = self._get_version_string(version)
 
         if tag_name in [tag.name for tag in self._repository.tags]:
             print(f"Tag '{tag_name}' already exists")
@@ -240,6 +261,9 @@ class FilamentVersioner:
 
         return None, None
 
+    def _get_version_string(self, version: semver.Version) -> str:
+        return self._version_prefix + str(version)
+
     @staticmethod
     def _bump_version(
         previous_version: semver.Version,
@@ -260,36 +284,47 @@ class FilamentVersioner:
         else:
             return previous_version
 
+    @staticmethod
+    def _output_result(name: str, value: str) -> None:
+        github_output = os.getenv("GITHUB_OUTPUT")
+        if not github_output:
+            return
+
+        with open(github_output, "a") as fd:
+            fd.write(f"{name}={value}\n")
+
 
 def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-r",
         "--repository",
-        required=True,
+        default=os.getcwd(),
         help="Path to the repository to work on",
     )
     parser.add_argument(
         "-m",
         "--main-branch",
-        required=True,
+        default=os.getenv("MAIN_BRANCH", "main"),
         help="The name of the main branch",
     )
     parser.add_argument(
         "-d",
         "--dev-branch",
+        default=os.getenv("DEV_BRANCH"),
         help="The name of the dev branch (if applying a dev version tag)",
     )
     parser.add_argument(
         "-s",
         "--dev-suffix",
-        default="dev",
+        default=os.getenv("DEV_SUFFIX", "dev"),
         help="The suffix to use for the dev branch",
     )
     parser.add_argument(
         "-p",
         "--push",
         action="store_true",
+        default=os.getenv("PUSH"),
         help="Push any new tags to the remote repository",
     )
 
