@@ -1,11 +1,11 @@
+import argparse
 import re
 import sys
 from enum import IntEnum
+from typing import Optional
 
 import git
 import semver
-import argparse
-from typing import Optional, Tuple
 
 
 class VersionUpdateEnum(IntEnum):
