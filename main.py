@@ -252,10 +252,29 @@ class FilamentVersioner:
 
 def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     parser = argparse.ArgumentParser()
-    parser.add_argument("-r", "--repository", required=True)
-    parser.add_argument("-m", "--main-branch", required=True)
-    parser.add_argument("-d", "--dev-branch")
-    parser.add_argument("-s", "--dev-suffix", default="dev")
+    parser.add_argument(
+        "-r",
+        "--repository",
+        required=True,
+        help="Path to the repository to work on",
+    )
+    parser.add_argument(
+        "-m",
+        "--main-branch",
+        required=True,
+        help="The name of the main branch",
+    )
+    parser.add_argument(
+        "-d",
+        "--dev-branch",
+        help="The name of the dev branch (if applying a dev version tag)",
+    )
+    parser.add_argument(
+        "-s",
+        "--dev-suffix",
+        default="dev",
+        help="The suffix to use for the dev branch",
+    )
 
     result = parser.parse_args(args)
 
