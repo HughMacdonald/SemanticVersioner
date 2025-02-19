@@ -201,6 +201,16 @@ class FilamentVersioner:
             if branch.name == branch_name:
                 return branch.commit
 
+        remote = self._repository.remote()
+        remote_name = remote.name
+        remote_branches = remote.refs
+        for branch in remote_branches:
+            name_bits = branch.name.split("/")
+            if len(name_bits) != 2:
+                continue
+            if name_bits[0] == remote_name and name_bits[1] == branch_name:
+                return branch.commit
+
         return None
 
     def _get_version_update_type(
