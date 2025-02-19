@@ -34,9 +34,32 @@ runs:
     - name: Print action path
       run: echo "${GITHUB_ACTION_PATH}"
       shell: bash
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      shell: bash
+      with:
+        python-version: 3.11
+
+    - name: Update package list
+      run: apt-get update
+      shell: bash
+
+    - name: Install system dependencies
+      run: apt-get install -y python3-dev libpq-dev
+      shell: bash
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      shell: bash
+
+    - name: Install Python dependencies
+      run: poetry -C ${GITHUB_ACTION_PATH} install --no-root
+      shell: bash
+
     - name: Increment version
       id: increment-version
-      run: ${GITHUB_ACTION_PATH}/update_version.sh
+      run: poetry -C ${GITHUB_ACTION_PATH} run python main.py
       shell: bash
       env:
         GIT_EMAIL: ${{ inputs.git-email }}
