@@ -168,6 +168,7 @@ class FilamentVersioner:
         self._repository.git.push("origin", "--tags")
         return True
 
+
     def _add_version_tag_to_commit(
         self,
         commit: git.Commit,
