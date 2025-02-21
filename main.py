@@ -266,8 +266,8 @@ class FilamentVersioner:
         for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
             print(f"Checking tag {tag.name} on {tag.commit}")
             common_ancestors = self._repository.merge_base(
-                commit,
                 tag.commit,
+                commit,
             )
             print(f"Common ancestors: {common_ancestors}")
 
