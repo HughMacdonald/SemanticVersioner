@@ -262,15 +262,19 @@ class FilamentVersioner:
         :return: A Tuple containing the version and commit, or (None, None)
         """
 
+        print(f"Finding latest tag on {commit}")
         for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
+            print(f"Checking tag {tag.name} on {tag.commit}")
             common_ancestors = self._repository.merge_base(
                 commit,
                 tag.commit,
             )
+            print(f"Common ancestors: {common_ancestors}")
 
             if len(common_ancestors) == 1 and common_ancestors[0] == tag.commit:
                 try:
                     version = semver.Version.parse(tag.name[len(self._version_prefix):])
+                    print(f"Returning version: {version}")
                     return version, tag.commit
                 except ValueError:
                     pass
