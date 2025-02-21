@@ -52,10 +52,10 @@ class FilamentVersioner:
 
     def __init__(
         self,
-        repository: str,
+        repository_path: str,
         main_branch: str,
     ):
-        self._repository = git.Repo(repository)
+        self._repository = git.Repo(repository_path)
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
 
@@ -64,6 +64,7 @@ class FilamentVersioner:
         Initialize the object
         :return: Whether the initialization was successful
         """
+        self._repository.remote().fetch(tags=True)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             print(f"Branch not found: {self._main_branch}")
@@ -204,7 +205,6 @@ class FilamentVersioner:
                 return branch.commit
 
         remote = self._repository.remote()
-        remote.fetch(tags=True)
         remote_name = remote.name
         remote_branches = remote.refs
         for branch in remote_branches:
@@ -253,27 +253,19 @@ class FilamentVersioner:
         values or not
         :return: A Tuple containing the version and commit, or (None, None)
         """
-        tag_name = self._repository.git.describe(commit, tags=True, abbrev=0)
-        if tag_name.startswith(self._version_prefix):
-            try:
-                tag_commit = None
-                for tag in self._repository.tags:
-                    if tag.name == tag_name:
-                        tag_commit = tag.commit
-                        break
-                version = semver.Version.parse(tag_name[len(self._version_prefix) :])
-                if version.prerelease and not include_prerelease:
-                    if commit.parents:
-                        return self._get_latest_version(commit.parents[0])
-                    else:
-                        return None, None
-                return version, tag_commit
-            except ValueError:
-                if commit.parents:
-                    return self._get_latest_version(commit.parents[0])
-        else:
-            if commit.parents:
-                return self._get_latest_version(commit.parents[0])
+
+        for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
+            common_ancestors = self._repository.merge_base(
+                commit,
+                tag.commit,
+            )
+
+            if len(common_ancestors) == 1 and common_ancestors[0] == tag.commit:
+                try:
+                    version = semver.Version.parse(tag.name[len(self._version_prefix):])
+                    return version, tag.commit
+                except ValueError:
+                    pass
 
         return None, None
 
