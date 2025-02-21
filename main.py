@@ -365,6 +365,8 @@ def main(argv: list[str]) -> int:
     print(f"Repository: {args.repository}")
     print(f"Main branch: {args.main_branch}")
 
+    os.system(f"cd {args.repository} && git log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit")
+
     versioner = FilamentVersioner(args.repository, args.main_branch)
     if not versioner.initialize():
         return 1
@@ -386,5 +388,4 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    os.system("git log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit")
     sys.exit(main(sys.argv[1:]))
