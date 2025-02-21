@@ -77,7 +77,7 @@ class FilamentVersioner:
         Initialize the object
         :return: Whether the initialization was successful
         """
-        self._repository.remote().fetch(tags=True)
+        self._repository.remote().fetch(tags=True, unshallow=True)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             print(f"Branch not found: {self._main_branch}")
