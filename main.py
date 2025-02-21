@@ -123,6 +123,14 @@ class FilamentVersioner:
             dev_head_commit
         )
 
+        if not latest_main_version:
+            print("Could not find the latest main version")
+            return False
+
+        if not latest_dev_version:
+            print("Could not find the latest dev version")
+            return False
+
         if latest_dev_version_commit == dev_head_commit:
             print("Cannot add new version tag to commit that already has a version tag")
             return False
@@ -132,7 +140,7 @@ class FilamentVersioner:
             dev_head_commit,
         )
         if len(common_ancestors) != 1:
-            print("Could not find a single common ancestor")
+            print(f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}")
             return False
 
         version_update_type = self._get_version_update_type(
