@@ -55,19 +55,6 @@ class FilamentVersioner:
         repository_path: str,
         main_branch: str,
     ):
-        print("Initial repository")
-        os.system(
-            f"cd {repository_path} && git log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
-            )
-        print("Fetch")
-        os.system(
-            f"cd {repository_path} && git fetch"
-            )
-        print("Post-fetch repository")
-        os.system(
-            f"cd {repository_path} && git log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit"
-            )
-
         self._repository = git.Repo(repository_path)
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
