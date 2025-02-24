@@ -117,7 +117,7 @@ class FilamentVersioner:
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
         (latest_main_version, latest_main_version_commit) = self._get_latest_version(
-            self._main_head_commit
+            self._main_head_commit, False
         )
         (latest_dev_version, latest_dev_version_commit) = self._get_latest_version(
             dev_head_commit
