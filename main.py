@@ -236,7 +236,7 @@ class FilamentVersioner:
         :param end_commit: The last commit to check to
         :return: The VersionUpdateEnum value specifying the type of version update
         """
-        version_update = VersionUpdateEnum.MINOR
+        version_update = VersionUpdateEnum.PATCH
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
             for version_update_regex in self._version_update_regexes:
