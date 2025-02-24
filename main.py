@@ -10,10 +10,9 @@ import semver
 
 
 class VersionUpdateEnum(IntEnum):
-    NONE = 0
-    PATCH = 1
-    MINOR = 2
-    MAJOR = 3
+    PATCH = 0
+    MINOR = 1
+    MAJOR = 2
 
 
 class FilamentVersioner:
@@ -237,7 +236,7 @@ class FilamentVersioner:
         :param end_commit: The last commit to check to
         :return: The VersionUpdateEnum value specifying the type of version update
         """
-        version_update = VersionUpdateEnum.NONE
+        version_update = VersionUpdateEnum.MINOR
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
             for version_update_regex in self._version_update_regexes:
