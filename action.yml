@@ -39,13 +39,7 @@ runs:
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
-
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-
-    - name: Install Python dependencies
-      run: poetry -C ${GITHUB_ACTION_PATH} install --no-root
-      shell: bash
+        cache: "poetry"
 
     - name: Increment version
       id: increment-version
