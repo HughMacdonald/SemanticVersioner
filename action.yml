@@ -49,7 +49,6 @@ runs:
 
     - name: Increment version
       id: increment-version
-      working-directory: ${GITHUB_ACTION_PATH}
       run: python main.py
       shell: bash
       env:
