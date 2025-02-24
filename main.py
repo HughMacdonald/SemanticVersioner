@@ -64,7 +64,7 @@ class FilamentVersioner:
         Initialize the object
         :return: Whether the initialization was successful
         """
-        self._repository.remote().fetch(tags=True)
+        self._repository.remote().fetch(tags=True, unshallow=True)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             print(f"Branch not found: {self._main_branch}")
@@ -117,11 +117,19 @@ class FilamentVersioner:
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
         (latest_main_version, latest_main_version_commit) = self._get_latest_version(
-            self._main_head_commit
+            self._main_head_commit, False
         )
         (latest_dev_version, latest_dev_version_commit) = self._get_latest_version(
             dev_head_commit
         )
+
+        if not latest_main_version:
+            print("Could not find the latest main version")
+            return False
+
+        if not latest_dev_version:
+            print("Could not find the latest dev version")
+            return False
 
         if latest_dev_version_commit == dev_head_commit:
             print("Cannot add new version tag to commit that already has a version tag")
@@ -132,7 +140,7 @@ class FilamentVersioner:
             dev_head_commit,
         )
         if len(common_ancestors) != 1:
-            print("Could not find a single common ancestor")
+            print(f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}")
             return False
 
         version_update_type = self._get_version_update_type(
@@ -254,18 +262,26 @@ class FilamentVersioner:
         :return: A Tuple containing the version and commit, or (None, None)
         """
 
+        print(f"Finding latest tag on {commit}")
         for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
+            try:
+                version = semver.Version.parse(tag.name[len(self._version_prefix):])
+            except ValueError:
+                continue
+
+            if version.prerelease and not include_prerelease:
+                continue
+
+            print(f"Checking tag {tag.name} on {tag.commit}")
             common_ancestors = self._repository.merge_base(
-                commit,
                 tag.commit,
+                commit,
             )
+            print(f"Common ancestors: {common_ancestors}")
 
             if len(common_ancestors) == 1 and common_ancestors[0] == tag.commit:
-                try:
-                    version = semver.Version.parse(tag.name[len(self._version_prefix):])
-                    return version, tag.commit
-                except ValueError:
-                    pass
+                print(f"Returning version: {version}")
+                return version, tag.commit
 
         return None, None
 
