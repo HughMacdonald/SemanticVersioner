@@ -49,7 +49,7 @@ runs:
 
     - name: Increment version
       id: increment-version
-      run: python main.py
+      run: cd ${GITHUB_ACTION_PATH} && python main.py
       shell: bash
       env:
         GIT_EMAIL: ${{ inputs.git-email }}
