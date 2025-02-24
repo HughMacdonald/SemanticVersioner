@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import re
 import sys
@@ -7,6 +8,14 @@ from typing import Optional, Tuple
 
 import git
 import semver
+
+log = logging.getLogger()
+log.setLevel(logging.DEBUG)
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(
+    logging.Formatter("%(asctime)s : %(levelname)s : %(message)s")
+    )
+log.addHandler(stream_handler)
 
 
 class VersionUpdateEnum(IntEnum):
@@ -66,9 +75,9 @@ class FilamentVersioner:
         self._repository.remote().fetch(tags=True, unshallow=True)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
-            print(f"Branch not found: {self._main_branch}")
+            log.error(f"Branch not found: {self._main_branch}")
             branch_names = [branch.name for branch in self._repository.branches]
-            print(f"Available branches: {', '.join(branch_names)}")
+            log.debug(f"Available branches: {', '.join(branch_names)}")
             return False
 
         return True
@@ -82,7 +91,7 @@ class FilamentVersioner:
             self._main_head_commit, False
         )
         if latest_version_commit == self._main_head_commit:
-            print("Cannot add new version tag to commit that already has a version tag")
+            log.error("Cannot add new version tag to commit that already has a version tag")
             return False
 
         version_update_type = self._get_version_update_type(
@@ -123,15 +132,15 @@ class FilamentVersioner:
         )
 
         if not latest_main_version:
-            print("Could not find the latest main version")
+            log.error("Could not find the latest main version")
             return False
 
         if not latest_dev_version:
-            print("Could not find the latest dev version")
+            log.error("Could not find the latest dev version")
             return False
 
         if latest_dev_version_commit == dev_head_commit:
-            print("Cannot add new version tag to commit that already has a version tag")
+            log.error("Cannot add new version tag to commit that already has a version tag")
             return False
 
         common_ancestors = self._repository.merge_base(
@@ -139,7 +148,7 @@ class FilamentVersioner:
             dev_head_commit,
         )
         if len(common_ancestors) != 1:
-            print(f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}")
+            log.error(f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}")
             return False
 
         version_update_type = self._get_version_update_type(
@@ -192,10 +201,10 @@ class FilamentVersioner:
         tag_name = self._get_version_string(version)
 
         if tag_name in [tag.name for tag in self._repository.tags]:
-            print(f"Tag '{tag_name}' already exists")
+            log.error(f"Tag '{tag_name}' already exists")
             return False
 
-        print(f"Adding tag '{tag_name}' to commit '{commit}'")
+        log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
         self._repository.create_tag(tag_name, ref=str(commit))
         return True
 
@@ -205,9 +214,9 @@ class FilamentVersioner:
         :param branch_name: The branch name to get the commit for
         :return: The commit object, if the branch exists, otherwise None
         """
-        print(f"Searching for branch: {branch_name}")
+        log.info(f"Searching for branch: {branch_name}")
         for branch in self._repository.branches:
-            print(f"Checking branch {branch.name}")
+            log.debug(f"Checking branch {branch.name}")
             if branch.name == branch_name:
                 return branch.commit
 
@@ -215,7 +224,7 @@ class FilamentVersioner:
         remote_name = remote.name
         remote_branches = remote.refs
         for branch in remote_branches:
-            print(f"Checking branch {branch.name}")
+            log.debug(f"Checking branch {branch.name}")
             name_bits = branch.name.split("/")
             if len(name_bits) != 2:
                 continue
@@ -261,7 +270,7 @@ class FilamentVersioner:
         :return: A Tuple containing the version and commit, or (None, None)
         """
 
-        print(f"Finding latest tag on {commit}")
+        log.info(f"Finding latest tag on {commit}")
         for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
             try:
                 version = semver.Version.parse(tag.name[len(self._version_prefix):])
@@ -271,17 +280,17 @@ class FilamentVersioner:
             if version.prerelease and not include_prerelease:
                 continue
 
-            print(f"Checking tag {tag.name} on {tag.commit}")
+            log.debug(f"Checking tag {tag.name} on {tag.commit}")
             common_ancestors = self._repository.merge_base(
                 tag.commit,
                 commit,
             )
-            print(f"Common ancestors: {common_ancestors}")
 
             if len(common_ancestors) == 1 and common_ancestors[0] == tag.commit:
-                print(f"Returning version: {version}")
+                log.info(f"Returning version: {version}")
                 return version, tag.commit
 
+        log.error(f"Not found latest version on {commit}")
         return None, None
 
     def _get_version_string(self, version: semver.Version) -> str:
@@ -365,16 +374,16 @@ def main(argv: list[str]) -> int:
     if not args:
         return 1
 
-    print(f"Repository: {args.repository}")
-    print(f"Main branch: {args.main_branch}")
+    log.info(f"Repository: {args.repository}")
+    log.info(f"Main branch: {args.main_branch}")
 
     versioner = FilamentVersioner(args.repository, args.main_branch)
     if not versioner.initialize():
         return 1
 
     if args.dev_branch:
-        print(f"Dev branch: {args.dev_branch}")
-        print(f"Dev suffix: {args.dev_suffix}")
+        log.info(f"Dev branch: {args.dev_branch}")
+        log.info(f"Dev suffix: {args.dev_suffix}")
         if not versioner.add_dev_tag(args.dev_branch, args.dev_suffix):
             return 1
     else:
