@@ -14,7 +14,7 @@ log.setLevel(logging.DEBUG)
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(
     logging.Formatter("%(asctime)s : %(levelname)s : %(message)s")
-    )
+)
 log.addHandler(stream_handler)
 
 
@@ -32,14 +32,14 @@ class FilamentVersioner:
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            re.compile("^[Ff][Ii][Xx](\(.*\))?:"),
+            re.compile("^fix(\(.*\))?:", re.I),
             VersionUpdateEnum.PATCH,
         ),
         (
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            re.compile("^[Ff][Ee][Aa][Tt](\(.*\))?:"),
+            re.compile("^feat(\(.*\))?:", re.I),
             VersionUpdateEnum.MINOR,
         ),
         (
@@ -48,7 +48,13 @@ class FilamentVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            re.compile("^([Ff][Ee][Aa][Tt]|[Ff][Ii][Xx])(\(.*\))?!:"),
+            re.compile("^(feat|fix)(\(.*\))?!:", re.I),
+            VersionUpdateEnum.MAJOR,
+        ),
+        (
+            # Commit message starting with (cast insensitive):
+            # breaking change:
+            re.compile("^breaking\s+change:", re.I),
             VersionUpdateEnum.MAJOR,
         ),
     ]
@@ -91,7 +97,9 @@ class FilamentVersioner:
             self._main_head_commit, False
         )
         if latest_version_commit == self._main_head_commit:
-            log.error("Cannot add new version tag to commit that already has a version tag")
+            log.error(
+                "Cannot add new version tag to commit that already has a version tag"
+            )
             return False
 
         version_update_type = self._get_version_update_type(
@@ -140,7 +148,9 @@ class FilamentVersioner:
             return False
 
         if latest_dev_version_commit == dev_head_commit:
-            log.error("Cannot add new version tag to commit that already has a version tag")
+            log.error(
+                "Cannot add new version tag to commit that already has a version tag"
+            )
             return False
 
         common_ancestors = self._repository.merge_base(
@@ -148,7 +158,9 @@ class FilamentVersioner:
             dev_head_commit,
         )
         if len(common_ancestors) != 1:
-            log.error(f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}")
+            log.error(
+                f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}"
+            )
             return False
 
         version_update_type = self._get_version_update_type(
@@ -248,12 +260,13 @@ class FilamentVersioner:
         version_update = VersionUpdateEnum.PATCH
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
-            for version_update_regex in self._version_update_regexes:
-                if (
-                    version_update_regex[0].match(commit_message)
-                    and version_update_regex[1] > version_update
-                ):
-                    version_update = version_update_regex[1]
+            for line in commit_message.splitlines():
+                for version_update_regex in self._version_update_regexes:
+                    if (
+                        version_update_regex[0].match(line)
+                        and version_update_regex[1] > version_update
+                    ):
+                        version_update = version_update_regex[1]
 
         return version_update
 
@@ -273,7 +286,7 @@ class FilamentVersioner:
         log.info(f"Finding latest tag on {commit}")
         for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
             try:
-                version = semver.Version.parse(tag.name[len(self._version_prefix):])
+                version = semver.Version.parse(tag.name[len(self._version_prefix) :])
             except ValueError:
                 continue
 
