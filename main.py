@@ -284,7 +284,9 @@ class FilamentVersioner:
         """
 
         log.info(f"Finding latest tag on {commit}")
-        for tag in sorted(self._repository.tags, key=lambda t: t.name, reverse=True):
+
+        tags = []
+        for tag in self._repository.tags:
             try:
                 version = semver.Version.parse(tag.name[len(self._version_prefix) :])
             except ValueError:
@@ -293,15 +295,19 @@ class FilamentVersioner:
             if version.prerelease and not include_prerelease:
                 continue
 
-            log.debug(f"Checking tag {tag.name} on {tag.commit}")
+            tags.append({"tag": tag, "version": version})
+
+
+        for tag in sorted(tags, key=lambda t: t["version"], reverse=True):
+            log.debug(f"Checking tag {tag['tag'].name} on {tag['tag'].commit}")
             common_ancestors = self._repository.merge_base(
-                tag.commit,
+                tag['tag'].commit,
                 commit,
             )
 
-            if len(common_ancestors) == 1 and common_ancestors[0] == tag.commit:
-                log.info(f"Returning version: {version}")
-                return version, tag.commit
+            if len(common_ancestors) == 1 and common_ancestors[0] == tag['tag'].commit:
+                log.info(f"Returning version: {tag['version']}")
+                return tag["version"], tag['tag'].commit
 
         log.error(f"Not found latest version on {commit}")
         return None, None
