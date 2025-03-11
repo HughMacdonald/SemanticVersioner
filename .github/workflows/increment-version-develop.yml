@@ -1,0 +1,26 @@
+﻿name: Increment Version (develop)
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+
+    permissions:
+      id-token: write
+      contents: write
+      checks: write
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Increment Version
+        uses: FilamentSoftware/FilamentVersioner@v1
+        with:
+          main-branch: "main"
+          dev-branch: "develop"
+          dev-suffix: "dev"
