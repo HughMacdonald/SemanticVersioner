@@ -4,7 +4,7 @@ import os
 import re
 import sys
 from enum import IntEnum
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
 import git
 import semver
@@ -88,7 +88,7 @@ class FilamentVersioner:
 
         return True
 
-    def add_main_tag(self) -> bool:
+    def add_main_tags(self) -> bool:
         """
         Add a new version tag to the main branch of this repository
         :return: Whether the process was successful
@@ -108,19 +108,19 @@ class FilamentVersioner:
         )
         self._output_result(
             "previous-version",
-            self._get_version_string(latest_version),
+            self._get_version_strings(latest_version)[0],
         )
 
         new_version = self._bump_version(latest_version, version_update_type)
 
         self._output_result(
             "new-version",
-            self._get_version_string(new_version),
+            self._get_version_strings(new_version)[0],
         )
 
-        return self._add_version_tag_to_commit(self._main_head_commit, new_version)
+        return self._add_version_tags_to_commit(self._main_head_commit, new_version)
 
-    def add_dev_tag(
+    def add_dev_tags(
         self,
         dev_branch: str,
         dev_suffix: str,
@@ -170,7 +170,7 @@ class FilamentVersioner:
 
         self._output_result(
             "previous-version",
-            self._get_version_string(latest_dev_version),
+            self._get_version_strings(latest_dev_version)[0],
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
@@ -186,10 +186,10 @@ class FilamentVersioner:
 
         self._output_result(
             "new-version",
-            self._get_version_string(new_dev_version),
+            self._get_version_strings(new_dev_version)[0],
         )
 
-        return self._add_version_tag_to_commit(dev_head_commit, new_dev_version)
+        return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
 
     def push_tags(self) -> bool:
         """
@@ -199,7 +199,7 @@ class FilamentVersioner:
         self._repository.git.push("origin", "--tags")
         return True
 
-    def _add_version_tag_to_commit(
+    def _add_version_tags_to_commit(
         self,
         commit: git.Commit,
         version: semver.Version,
@@ -210,14 +210,18 @@ class FilamentVersioner:
         :param version: The version to use for the tag name
         :return: Whether this process was successful
         """
-        tag_name = self._get_version_string(version)
+        existing_tags = {tag.name: tag for tag in self._repository.tags}
+        tag_names = self._get_version_strings(version)
 
-        if tag_name in [tag.name for tag in self._repository.tags]:
-            log.error(f"Tag '{tag_name}' already exists")
-            return False
+        for tag_name in tag_names:
+            existing_tag = existing_tags.get(tag_name)
+            if existing_tag:
+                self._repository.delete_tag(existing_tag)
+                log.info(f"Deleting tag '{tag_name}'")
 
-        log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
-        self._repository.create_tag(tag_name, ref=str(commit))
+            log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
+            self._repository.create_tag(tag_name, ref=str(commit))
+
         return True
 
     def _get_branch_head_commit(self, branch_name: str) -> Optional[git.Commit]:
@@ -297,23 +301,40 @@ class FilamentVersioner:
 
             tags.append({"tag": tag, "version": version})
 
-
         for tag in sorted(tags, key=lambda t: t["version"], reverse=True):
             log.debug(f"Checking tag {tag['tag'].name} on {tag['tag'].commit}")
             common_ancestors = self._repository.merge_base(
-                tag['tag'].commit,
+                tag["tag"].commit,
                 commit,
             )
 
-            if len(common_ancestors) == 1 and common_ancestors[0] == tag['tag'].commit:
+            if len(common_ancestors) == 1 and common_ancestors[0] == tag["tag"].commit:
                 log.info(f"Returning version: {tag['version']}")
-                return tag["version"], tag['tag'].commit
+                return tag["version"], tag["tag"].commit
 
         log.error(f"Not found latest version on {commit}")
         return None, None
 
-    def _get_version_string(self, version: semver.Version) -> str:
-        return self._version_prefix + str(version)
+    def _get_version_strings(self, version: semver.Version) -> list[str]:
+        suffix = ""
+        if version.prerelease:
+            suffix = "-" + version.prerelease.split(".")[0]
+
+        result = [f"{self._version_prefix}{version}"]
+
+        if suffix:
+            result.append(
+                f"{self._version_prefix}{version.major}.{version.minor}.{version.patch}{suffix}"
+            )
+
+        result.extend(
+            [
+                f"{self._version_prefix}{version.major}.{version.minor}{suffix}",
+                f"{self._version_prefix}{version.major}{suffix}",
+            ]
+        )
+
+        return result
 
     @staticmethod
     def _bump_version(
@@ -403,10 +424,10 @@ def main(argv: list[str]) -> int:
     if args.dev_branch:
         log.info(f"Dev branch: {args.dev_branch}")
         log.info(f"Dev suffix: {args.dev_suffix}")
-        if not versioner.add_dev_tag(args.dev_branch, args.dev_suffix):
+        if not versioner.add_dev_tags(args.dev_branch, args.dev_suffix):
             return 1
     else:
-        if not versioner.add_main_tag():
+        if not versioner.add_main_tags():
             return 1
 
     if args.push:
