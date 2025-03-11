@@ -216,8 +216,9 @@ class FilamentVersioner:
         for tag_name in tag_names:
             existing_tag = existing_tags.get(tag_name)
             if existing_tag:
-                self._repository.delete_tag(existing_tag)
                 log.info(f"Deleting tag '{tag_name}'")
+                self._repository.delete_tag(existing_tag)
+                self._repository.git.push("--delete", "origin", tag_name)
 
             log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
             self._repository.create_tag(tag_name, ref=str(commit))
