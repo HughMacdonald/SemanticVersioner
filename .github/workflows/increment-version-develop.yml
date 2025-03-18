@@ -24,3 +24,4 @@ jobs:
           main-branch: "main"
           dev-branch: "develop"
           dev-suffix: "dev"
+          include-shorter-versions: 1
