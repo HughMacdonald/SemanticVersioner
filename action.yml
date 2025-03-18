@@ -16,6 +16,11 @@ inputs:
     description: The suffix to use for development versions
     required: false
     default: dev
+  include-shorter-versions:
+    description: Include shorter versions of tags that move as new versions are created
+    required: false
+    default: "0"
+
 
 outputs:
   previous-version:
@@ -57,6 +62,7 @@ runs:
         MAIN_BRANCH: ${{ inputs.main-branch }}
         DEV_BRANCH: ${{ inputs.dev-branch }}
         DEV_SUFFIX: ${{ inputs.dev-suffix }}
+        INCLUDE_SHORTER_VERSIONS: ${{ inputs.include-shorter-versions }}
         PUSH: 1
 
     - name: Print outputs

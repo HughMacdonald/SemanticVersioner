@@ -68,10 +68,12 @@ class FilamentVersioner:
         self,
         repository_path: str,
         main_branch: str,
+        include_shorter_versions: bool,
     ):
         self._repository = git.Repo(repository_path)
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
+        self._include_shorter_versions = include_shorter_versions
 
     def initialize(self) -> bool:
         """
@@ -323,6 +325,9 @@ class FilamentVersioner:
 
         result = [f"{self._version_prefix}{version}"]
 
+        if not self._include_shorter_versions:
+            return result
+
         if suffix:
             result.append(
                 f"{self._version_prefix}{version.major}.{version.minor}.{version.patch}{suffix}"
@@ -393,6 +398,17 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         default=os.getenv("DEV_SUFFIX", "dev"),
         help="The suffix to use for the dev branch",
     )
+
+    parser.add_argument(
+        "-i",
+        "--include-shorter-versions",
+        default=(
+            os.getenv("INCLUDE_SHORTER_VERSIONS", "0").lower()
+            in ["1", "on", "yes", "y"]
+        ),
+        action="store_true",
+        help="Include shorter versions of tags that move as new versions are created",
+    )
     parser.add_argument(
         "-p",
         "--push",
@@ -418,7 +434,9 @@ def main(argv: list[str]) -> int:
     log.info(f"Repository: {args.repository}")
     log.info(f"Main branch: {args.main_branch}")
 
-    versioner = FilamentVersioner(args.repository, args.main_branch)
+    versioner = FilamentVersioner(
+        args.repository, args.main_branch, args.include_shorter_versions
+    )
     if not versioner.initialize():
         return 1
 
