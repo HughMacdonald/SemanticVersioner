@@ -36,10 +36,6 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Print action path
-      run: echo "${GITHUB_ACTION_PATH}"
-      shell: bash
-
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -64,13 +60,6 @@ runs:
         DEV_SUFFIX: ${{ inputs.dev-suffix }}
         INCLUDE_SHORTER_VERSIONS: ${{ inputs.include-shorter-versions }}
         PUSH: 1
-
-    - name: Print outputs
-      run: echo "Updated version. $PREVIOUS_VERSION -> $NEW_VERSION"
-      shell: bash
-      env:
-        PREVIOUS_VERSION: ${{ steps.increment-version.outputs.previous-version }}
-        NEW_VERSION: ${{ steps.increment-version.outputs.new-version }}
 
 branding:
   color: blue
