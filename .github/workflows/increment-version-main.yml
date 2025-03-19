@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Increment Version
-        uses: FilamentSoftware/FilamentVersioner@v1
+        uses: hughmacdonald/SemanticVersioner@v1
         with:
           main-branch: "main"
           include-shorter-versions: 1
