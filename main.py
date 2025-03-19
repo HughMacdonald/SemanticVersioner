@@ -4,7 +4,7 @@ import os
 import re
 import sys
 from enum import IntEnum
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import git
 import semver
@@ -24,7 +24,7 @@ class VersionUpdateEnum(IntEnum):
     MAJOR = 2
 
 
-class FilamentVersioner:
+class SemanticVersioner:
     # Regular expressions to be run on commit messages to determine which
     # version part to update
     _version_update_regexes = [
@@ -434,7 +434,7 @@ def main(argv: list[str]) -> int:
     log.info(f"Repository: {args.repository}")
     log.info(f"Main branch: {args.main_branch}")
 
-    versioner = FilamentVersioner(
+    versioner = SemanticVersioner(
         args.repository, args.main_branch, args.include_shorter_versions
     )
     if not versioner.initialize():

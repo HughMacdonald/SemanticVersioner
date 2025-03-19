@@ -1,4 +1,4 @@
-name: FilamentVersioner
+name: SemanticVersioner
 description: >
   A GitHub Action to increment the version based on convention commits and whether we are in a dev or main branch
 author: Hugh Macdonald
