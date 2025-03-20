@@ -19,7 +19,11 @@ inputs:
   include-shorter-versions:
     description: Include shorter versions of tags that move as new versions are created
     required: false
-    default: "0"
+    default: "false"
+  skip-python-install:
+    description: Skip the installation of Python (if it's already installed)
+    required: false
+    default: "false"
 
 
 outputs:
@@ -37,6 +41,7 @@ runs:
   using: "composite"
   steps:
     - name: Set up Python
+      if: ${{ !contains(fromJSON('["1", "y", "yes", "on", "true", "t"]'), inputs.skip-python-install) }}
       uses: actions/setup-python@v5
       with:
         python-version: 3.11
