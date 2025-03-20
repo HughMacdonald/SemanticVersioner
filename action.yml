@@ -55,7 +55,8 @@ runs:
 
     - name: Increment version
       id: increment-version
-      run: cd ${GITHUB_ACTION_PATH} && python main.py
+      run: python -w ${GITHUB_ACTION_PATH} main.py
+      shell: ${{ matrix.os == 'windows-latest' && 'pwsh' || 'bash' }}
       env:
         GIT_EMAIL: ${{ inputs.git-email }}
         GIT_USERNAME: ${{ inputs.git-username }}
