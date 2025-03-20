@@ -56,7 +56,7 @@ runs:
     - name: Increment version
       id: increment-version
       run: python main.py -r ${GITHUB_ACTION_PATH}
-      shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+      shell: ${{ runner.os == 'Windows' && 'powershell' || 'bash' }}
       env:
         GIT_EMAIL: ${{ inputs.git-email }}
         GIT_USERNAME: ${{ inputs.git-username }}
