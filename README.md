@@ -21,6 +21,17 @@ A GitHub Action to increment the version based on conventional commits and wheth
 
 ## Usage
 
+On push to `main`:
+
+    - name: Increment Version
+      uses: hughmacdonald/semantic-versioner@v1
+      with:
+        main-branch: main
+        include-shorter-versions: true
+        skip-python-install: false
+
+On push to `develop`:
+
     - name: Increment Version
       uses: hughmacdonald/semantic-versioner@v1
       with:
