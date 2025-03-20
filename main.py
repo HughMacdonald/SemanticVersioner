@@ -404,7 +404,7 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         "--include-shorter-versions",
         default=(
             os.getenv("INCLUDE_SHORTER_VERSIONS", "0").lower()
-            in ["1", "on", "yes", "y"]
+            in ["1", "on", "yes", "y", "true", "t"]
         ),
         action="store_true",
         help="Include shorter versions of tags that move as new versions are created",
