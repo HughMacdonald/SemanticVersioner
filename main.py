@@ -32,14 +32,14 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            re.compile("^fix(\(.*\))?:", re.I),
+            re.compile(r"^fix(\(.*\))?:", re.I),
             VersionUpdateEnum.PATCH,
         ),
         (
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            re.compile("^feat(\(.*\))?:", re.I),
+            re.compile(r"^feat(\(.*\))?:", re.I),
             VersionUpdateEnum.MINOR,
         ),
         (
@@ -48,13 +48,13 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            re.compile("^(feat|fix)(\(.*\))?!:", re.I),
+            re.compile(r"^(feat|fix)(\(.*\))?!:", re.I),
             VersionUpdateEnum.MAJOR,
         ),
         (
             # Commit message starting with (cast insensitive):
             # breaking change:
-            re.compile("^breaking\s+change:", re.I),
+            re.compile(r"^breaking\s+change:", re.I),
             VersionUpdateEnum.MAJOR,
         ),
     ]
