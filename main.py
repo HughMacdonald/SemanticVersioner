@@ -190,7 +190,7 @@ class SemanticVersioner:
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
         latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
         if dev_version_style == DevVersionStyle.INCREMENTING:
-            new_dev_version.prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}"
+            new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
 
         if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
             if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
@@ -213,9 +213,9 @@ class SemanticVersioner:
                     prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
 
                 prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
-                new_dev_version.prerelease = f"{dev_suffix}.{prerelease_version}"
+                new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
             else:
-                new_dev_version.prerelease = f"{dev_suffix}.0.0.1"
+                new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
 
         self._output_result(
             "new-version",
