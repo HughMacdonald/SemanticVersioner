@@ -72,10 +72,12 @@ class SemanticVersioner:
     def __init__(
         self,
         repository_path: str,
+        no_fetch: bool,
         main_branch: str,
         include_shorter_versions: bool,
     ):
         self._repository = git.Repo(repository_path)
+        self._no_fetch = no_fetch
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
         self._include_shorter_versions = include_shorter_versions
@@ -85,7 +87,8 @@ class SemanticVersioner:
         Initialize the object
         :return: Whether the initialization was successful
         """
-        self._repository.remote().fetch(tags=True, unshallow=True)
+        if not self._no_fetch:
+            self._repository.remote().fetch(tags=True, unshallow=True)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             log.error(f"Branch not found: {self._main_branch}")
@@ -193,14 +196,22 @@ class SemanticVersioner:
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
-        latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
-        log.debug(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
-        if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
-            log.debug("Updating prerelease to incrementing")
-            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
-        elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
-            log.debug("Updating prerelease to semantic")
-            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
+        if latest_dev_version.prerelease:
+            latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
+            log.debug(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
+            if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
+                log.debug("Updating prerelease to incrementing")
+                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
+            elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
+                log.debug("Updating prerelease to semantic")
+                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
+        else:
+            if dev_version_style == DevVersionStyle.INCREMENTING:
+                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0")
+            else:
+                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
 
         log.debug(f"New dev version: {new_dev_version}")
         log.debug(f"Latest dev version: {latest_dev_version}")
@@ -242,6 +253,7 @@ class SemanticVersioner:
             self._get_version_strings(new_dev_version)[0],
         )
 
+        log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
         return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
 
     def push_tags(self) -> bool:
@@ -432,6 +444,12 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="Path to the repository to work on",
     )
     parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        default=False,
+        help="Don't fetch the repository",
+    )
+    parser.add_argument(
         "-m",
         "--main-branch",
         default=os.getenv("MAIN_BRANCH", "main"),
@@ -499,7 +517,7 @@ def main(argv: list[str]) -> int:
     log.info(f"Main branch: {args.main_branch}")
 
     versioner = SemanticVersioner(
-        args.repository, args.main_branch, args.include_shorter_versions
+        args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
     )
     if not versioner.initialize():
         return 1
