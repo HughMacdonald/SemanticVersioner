@@ -195,9 +195,11 @@ class SemanticVersioner:
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
         latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
         log.info(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
-        if dev_version_style == DevVersionStyle.INCREMENTING:
+        if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
+            log.info("Updating prerelease to incrementing")
             new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
         elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
+            log.info("Updating prerelease to semantic")
             new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.1")
 
         log.info(f"New dev version: {new_dev_version}")
