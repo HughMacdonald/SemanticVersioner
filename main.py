@@ -231,9 +231,9 @@ class SemanticVersioner:
                 log.info(f"Old prerelease version: {prerelease_version}")
                 prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
                 log.info(f"New prerelease version: {prerelease_version}")
-                new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
             else:
-                new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
 
             log.info(f"New dev version: {new_dev_version}")
 
