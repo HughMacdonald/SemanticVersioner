@@ -487,6 +487,7 @@ def main(argv: list[str]) -> int:
     if args.dev_branch:
         log.info(f"Dev branch: {args.dev_branch}")
         log.info(f"Dev suffix: {args.dev_suffix}")
+        log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
         if not versioner.add_dev_tags(
             args.dev_branch,
             args.dev_suffix,
