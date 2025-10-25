@@ -24,6 +24,11 @@ class VersionUpdateEnum(IntEnum):
     MAJOR = 2
 
 
+class DevVersionStyle(IntEnum):
+    INCREMENTING = 0
+    SEMANTIC = 1
+
+
 class SemanticVersioner:
     # Regular expressions to be run on commit messages to determine which
     # version part to update
@@ -126,11 +131,13 @@ class SemanticVersioner:
         self,
         dev_branch: str,
         dev_suffix: str,
+        dev_version_style: DevVersionStyle,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
         :param dev_branch: The dev branch name
         :param dev_suffix: The suffix to use for dev tags
+        :param dev_version_style: The style to use for dev versions
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -170,21 +177,65 @@ class SemanticVersioner:
             dev_head_commit,
         )
 
+        dev_version_update_type = self._get_version_update_type(
+            latest_dev_version_commit,
+            dev_head_commit,
+        )
+
+        log.info(f"Latest main version: {latest_main_version}")
+        log.info(f"Latest dev version: {latest_dev_version}")
+        log.info(f"Version update type: {version_update_type}")
+        log.info(f"Dev version update type: {dev_version_update_type}")
+
         self._output_result(
             "previous-version",
             self._get_version_strings(latest_dev_version)[0],
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
+        latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
+        log.info(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
+        if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
+            log.info("Updating prerelease to incrementing")
+            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
+        elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
+            log.info("Updating prerelease to semantic")
+            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
 
-        if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
-            latest_dev_version.major,
-            latest_dev_version.minor,
-            latest_dev_version.patch,
-        ):
-            new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
+        log.info(f"New dev version: {new_dev_version}")
+        log.info(f"Latest dev version: {latest_dev_version}")
+
+        if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
+            log.info("Incrementing dev version, or patch update")
+            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+                latest_dev_version.major,
+                latest_dev_version.minor,
+                latest_dev_version.patch,
+            ):
+                new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
+            else:
+                new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+            log.info(f"New dev version: {new_dev_version}")
         else:
-            new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+            log.info("Semantic dev versioning")
+            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+                latest_dev_version.major,
+                latest_dev_version.minor,
+                latest_dev_version.patch,
+            ):
+                try:
+                    prerelease_version = semver.Version.parse(".".join(latest_dev_version_prerelease_bits))
+                except ValueError:
+                    prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
+
+                log.info(f"Old prerelease version: {prerelease_version}")
+                prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
+                log.info(f"New prerelease version: {prerelease_version}")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
+            else:
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
+
+            log.info(f"New dev version: {new_dev_version}")
 
         self._output_result(
             "new-version",
@@ -413,8 +464,21 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         "-p",
         "--push",
         action="store_true",
-        default=os.getenv("PUSH"),
+        default=(
+            os.getenv("PUSH", "0").lower() in ["1", "on", "yes", "y", "true", "t"]
+        ),
         help="Push any new tags to the remote repository",
+    )
+
+    parser.add_argument(
+        "-v",
+        "--use_semantic_dev_versions",
+        action="store_true",
+        default=(
+            os.getenv("USE_SEMANTIC_DEV_VERSIONS", "0").lower()
+            in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Use semantic dev versions",
     )
 
     result = parser.parse_args(args)
@@ -443,7 +507,16 @@ def main(argv: list[str]) -> int:
     if args.dev_branch:
         log.info(f"Dev branch: {args.dev_branch}")
         log.info(f"Dev suffix: {args.dev_suffix}")
-        if not versioner.add_dev_tags(args.dev_branch, args.dev_suffix):
+        log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
+        if not versioner.add_dev_tags(
+            args.dev_branch,
+            args.dev_suffix,
+            (
+                DevVersionStyle.SEMANTIC
+                if args.use_semantic_dev_versions
+                else DevVersionStyle.INCREMENTING
+            ),
+        ):
             return 1
     else:
         if not versioner.add_main_tags():
