@@ -177,21 +177,45 @@ class SemanticVersioner:
             dev_head_commit,
         )
 
+        dev_version_update_type = self._get_version_update_type(
+            latest_dev_version_commit,
+            dev_head_commit,
+        )
+
         self._output_result(
             "previous-version",
             self._get_version_strings(latest_dev_version)[0],
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
+        latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
+        if dev_version_style == DevVersionStyle.INCREMENTING:
+            new_dev_version.prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}"
 
-        if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
-            latest_dev_version.major,
-            latest_dev_version.minor,
-            latest_dev_version.patch,
-        ):
-            new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
+        if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
+            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+                latest_dev_version.major,
+                latest_dev_version.minor,
+                latest_dev_version.patch,
+            ):
+                new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
+            else:
+                new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
         else:
-            new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+                latest_dev_version.major,
+                latest_dev_version.minor,
+                latest_dev_version.patch,
+            ):
+                try:
+                    prerelease_version = semver.Version.parse(".".join(latest_dev_version_prerelease_bits))
+                except ValueError:
+                    prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
+
+                prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
+                new_dev_version.prerelease = f"{dev_suffix}.{prerelease_version}"
+            else:
+                new_dev_version.prerelease = f"{dev_suffix}.0.0.1"
 
         self._output_result(
             "new-version",
