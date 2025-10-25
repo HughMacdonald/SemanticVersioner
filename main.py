@@ -24,6 +24,11 @@ class VersionUpdateEnum(IntEnum):
     MAJOR = 2
 
 
+class DevVersionStyle(IntEnum):
+    INCREMENTING = 0
+    SEMANTIC = 1
+
+
 class SemanticVersioner:
     # Regular expressions to be run on commit messages to determine which
     # version part to update
@@ -126,11 +131,13 @@ class SemanticVersioner:
         self,
         dev_branch: str,
         dev_suffix: str,
+        dev_version_style: DevVersionStyle,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
         :param dev_branch: The dev branch name
         :param dev_suffix: The suffix to use for dev tags
+        :param dev_version_style: The style to use for dev versions
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -413,8 +420,21 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         "-p",
         "--push",
         action="store_true",
-        default=os.getenv("PUSH"),
+        default=(
+            os.getenv("PUSH", "0").lower() in ["1", "on", "yes", "y", "true", "t"]
+        ),
         help="Push any new tags to the remote repository",
+    )
+
+    parser.add_argument(
+        "-v",
+        "--use_semantic_dev_versions",
+        action="store_true",
+        default=(
+            os.getenv("USE_SEMANTIC_DEV_VERSIONS", "0").lower()
+            in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Use semantic dev versions",
     )
 
     result = parser.parse_args(args)
@@ -443,7 +463,15 @@ def main(argv: list[str]) -> int:
     if args.dev_branch:
         log.info(f"Dev branch: {args.dev_branch}")
         log.info(f"Dev suffix: {args.dev_suffix}")
-        if not versioner.add_dev_tags(args.dev_branch, args.dev_suffix):
+        if not versioner.add_dev_tags(
+            args.dev_branch,
+            args.dev_suffix,
+            (
+                DevVersionStyle.SEMANTIC
+                if args.use_semantic_dev_versions
+                else DevVersionStyle.INCREMENTING
+            ),
+        ):
             return 1
     else:
         if not versioner.add_main_tags():

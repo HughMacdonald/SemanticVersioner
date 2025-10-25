@@ -24,6 +24,13 @@ inputs:
     description: Skip the installation of Python (if it's already installed)
     required: false
     default: "false"
+  use-semantic-dev-versions:
+    description: >
+      Whether to use semantic versioning for the development (suffix) versions. If this
+      is set to false, the development versions will be a simple incrementing number. If
+      this is set to true, the development versions will be something like 1.2.3-dev.4.5.6
+    required: false
+    default: "false"
 
 
 outputs:
@@ -64,6 +71,7 @@ runs:
         DEV_BRANCH: ${{ inputs.dev-branch }}
         DEV_SUFFIX: ${{ inputs.dev-suffix }}
         INCLUDE_SHORTER_VERSIONS: ${{ inputs.include-shorter-versions }}
+        USE_SEMANTIC_DEV_VERSIONS: ${{ inputs.use-semantic-dev-versions }}
         PUSH: 1
 
 branding:
