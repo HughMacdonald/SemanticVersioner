@@ -197,14 +197,13 @@ class SemanticVersioner:
         log.info(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
         if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
             log.info("Updating prerelease to incrementing")
-            new_dev_version.bump_prerelease(dev_suffix)
-            new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
+            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
         elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
             log.info("Updating prerelease to semantic")
-            new_dev_version.bump_prerelease(dev_suffix)
-            new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.1")
+            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.1")
 
         log.info(f"New dev version: {new_dev_version}")
+        log.info(f"Latest dev version: {latest_dev_version}")
 
         if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
             log.info("Incrementing dev version, or patch update")
