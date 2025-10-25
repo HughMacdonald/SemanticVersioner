@@ -208,9 +208,10 @@ class SemanticVersioner:
         else:
             if dev_version_style == DevVersionStyle.INCREMENTING:
                 latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0")
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0")
             else:
                 latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
-            new_dev_version = latest_dev_version
+                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
 
         log.debug(f"New dev version: {new_dev_version}")
         log.debug(f"Latest dev version: {latest_dev_version}")
@@ -252,6 +253,7 @@ class SemanticVersioner:
             self._get_version_strings(new_dev_version)[0],
         )
 
+        log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
         return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
 
     def push_tags(self) -> bool:
