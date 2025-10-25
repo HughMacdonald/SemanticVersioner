@@ -182,6 +182,11 @@ class SemanticVersioner:
             dev_head_commit,
         )
 
+        log.info(f"Latest main version: {latest_main_version}")
+        log.info(f"Latest dev version: {latest_dev_version}")
+        log.info(f"Version update type: {version_update_type}")
+        log.info(f"Dev version update type: {dev_version_update_type}")
+
         self._output_result(
             "previous-version",
             self._get_version_strings(latest_dev_version)[0],
@@ -192,7 +197,10 @@ class SemanticVersioner:
         if dev_version_style == DevVersionStyle.INCREMENTING:
             new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
 
+        log.info(f"New dev version: {new_dev_version}")
+
         if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
+            log.info("Incrementing dev version, or patch update")
             if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
@@ -201,7 +209,9 @@ class SemanticVersioner:
                 new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
             else:
                 new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+            log.info(f"New dev version: {new_dev_version}")
         else:
+            log.info("Semantic dev versioning")
             if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
@@ -212,10 +222,14 @@ class SemanticVersioner:
                 except ValueError:
                     prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
 
+                log.info(f"Old prerelease version: {prerelease_version}")
                 prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
+                log.info(f"New prerelease version: {prerelease_version}")
                 new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
             else:
                 new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
+
+            log.info(f"New dev version: {new_dev_version}")
 
         self._output_result(
             "new-version",
