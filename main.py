@@ -182,10 +182,10 @@ class SemanticVersioner:
             dev_head_commit,
         )
 
-        log.info(f"Latest main version: {latest_main_version}")
-        log.info(f"Latest dev version: {latest_dev_version}")
-        log.info(f"Version update type: {version_update_type}")
-        log.info(f"Dev version update type: {dev_version_update_type}")
+        log.debug(f"Latest main version: {latest_main_version}")
+        log.debug(f"Latest dev version: {latest_dev_version}")
+        log.debug(f"Version update type: {version_update_type}")
+        log.debug(f"Dev version update type: {dev_version_update_type}")
 
         self._output_result(
             "previous-version",
@@ -194,19 +194,19 @@ class SemanticVersioner:
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
         latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
-        log.info(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
+        log.debug(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
         if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
-            log.info("Updating prerelease to incrementing")
+            log.debug("Updating prerelease to incrementing")
             latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
         elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
-            log.info("Updating prerelease to semantic")
+            log.debug("Updating prerelease to semantic")
             latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
 
-        log.info(f"New dev version: {new_dev_version}")
-        log.info(f"Latest dev version: {latest_dev_version}")
+        log.debug(f"New dev version: {new_dev_version}")
+        log.debug(f"Latest dev version: {latest_dev_version}")
 
         if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
-            log.info("Incrementing dev version, or patch update")
+            log.debug("Incrementing dev version, or patch update")
             if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
@@ -215,9 +215,9 @@ class SemanticVersioner:
                 new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
             else:
                 new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
-            log.info(f"New dev version: {new_dev_version}")
+            log.debug(f"New dev version: {new_dev_version}")
         else:
-            log.info("Semantic dev versioning")
+            log.debug("Semantic dev versioning")
             if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
@@ -228,14 +228,14 @@ class SemanticVersioner:
                 except ValueError:
                     prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
 
-                log.info(f"Old prerelease version: {prerelease_version}")
+                log.debug(f"Old prerelease version: {prerelease_version}")
                 prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
-                log.info(f"New prerelease version: {prerelease_version}")
+                log.debug(f"New prerelease version: {prerelease_version}")
                 new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
             else:
                 new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
 
-            log.info(f"New dev version: {new_dev_version}")
+            log.debug(f"New dev version: {new_dev_version}")
 
         self._output_result(
             "new-version",
