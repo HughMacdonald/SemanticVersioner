@@ -196,6 +196,8 @@ class SemanticVersioner:
         latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
         if dev_version_style == DevVersionStyle.INCREMENTING:
             new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
+        elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
+            new_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.1")
 
         log.info(f"New dev version: {new_dev_version}")
 
