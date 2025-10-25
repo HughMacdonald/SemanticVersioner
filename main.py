@@ -200,7 +200,7 @@ class SemanticVersioner:
             latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
         elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
             log.info("Updating prerelease to semantic")
-            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.1")
+            latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
 
         log.info(f"New dev version: {new_dev_version}")
         log.info(f"Latest dev version: {latest_dev_version}")
