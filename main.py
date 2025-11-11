@@ -427,8 +427,10 @@ class SemanticVersioner:
 
     @staticmethod
     def _output_result(name: str, value: str) -> None:
+        log.info(f"Writing output {name}: '{value}'")
         github_output = os.getenv("GITHUB_OUTPUT")
         if not github_output:
+            log.error("GITHUB_OUTPUT not set")
             return
 
         with open(github_output, "a") as fd:
