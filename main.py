@@ -682,6 +682,7 @@ def main(argv: list[str]) -> int:
 
     log.info(f"Repository: {args.repository}")
     log.info(f"Main branch: {args.main_branch}")
+    log.info(f"Changelog file: {args.changelog_file}")
 
     versioner = SemanticVersioner(
         args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
