@@ -143,6 +143,8 @@ class SemanticVersioner:
         """
         existing_changelog = None
 
+        log.info(f"Writing changelog file to {changelog_file}")
+
         if os.path.isfile(changelog_file):
             with open(changelog_file, "r") as fd:
                 existing_changelog = fd.read()
@@ -159,6 +161,8 @@ class SemanticVersioner:
                 fd.write(existing_changelog)
                 fd.write("\n")
 
+        log.info("Committing changelog")
+        self._repository.index.add([changelog_file])
         return self._repository.index.commit(f"Update changelog for {version}")
 
     def generate_changelog(
