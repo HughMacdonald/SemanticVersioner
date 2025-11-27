@@ -130,12 +130,14 @@ class SemanticVersioner:
 
     def write_changelog(
         self,
+        branch_name: str,
         changelog_file: str,
         version: semver.Version,
         changelog: dict[CommitType, list[str]],
     ) -> git.Commit:
         """
         Write the changelog to the specified file
+        :param branch_name: The name of the branch to write the changelog for
         :param changelog_file: The file to write the changelog to
         :param version: The version the changelog is for
         :param changelog: The changelog to write
@@ -162,8 +164,13 @@ class SemanticVersioner:
                 fd.write("\n")
 
         log.info("Committing changelog")
+        self._repository.git.checkout(branch_name)
         self._repository.index.add([changelog_file])
-        return self._repository.index.commit(f"Update changelog for {version}")
+        new_commit = self._repository.index.commit(f"Update changelog for {version}")
+        origin = self._repository.remote(name="origin")
+        origin.push(branch_name)
+
+        return new_commit
 
     def generate_changelog(
         self, start_commit: git.Commit, end_commit: git.Commit
@@ -237,7 +244,7 @@ class SemanticVersioner:
 
         if changelog_file:
             changelog = self.generate_changelog(latest_version_commit, self._main_head_commit)
-            self._main_head_commit = self.write_changelog(changelog_file, new_version, changelog)
+            self._main_head_commit = self.write_changelog(self._main_branch, changelog_file, new_version, changelog)
 
         return self._add_version_tags_to_commit(self._main_head_commit, new_version)
 
@@ -409,7 +416,7 @@ class SemanticVersioner:
 
         if changelog_file:
             changelog = self.generate_changelog(latest_dev_version_commit, dev_head_commit)
-            dev_head_commit = self.write_changelog(changelog_file, new_dev_version, changelog)
+            dev_head_commit = self.write_changelog(dev_branch, changelog_file, new_dev_version, changelog)
 
         log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
         return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
