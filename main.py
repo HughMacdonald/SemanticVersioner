@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import sys
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional, Tuple
 
@@ -18,6 +19,12 @@ stream_handler.setFormatter(
 log.addHandler(stream_handler)
 
 
+class CommitType(IntEnum):
+    FEATURE = 0
+    FIX = 1
+    OTHER = 2
+
+
 class VersionUpdateEnum(IntEnum):
     PATCH = 0
     MINOR = 1
@@ -29,38 +36,61 @@ class DevVersionStyle(IntEnum):
     SEMANTIC = 1
 
 
+@dataclass
+class VersionUpdateRegex:
+    regex: re.Pattern
+    version_update: VersionUpdateEnum
+    commit_type: CommitType
+
+
 class SemanticVersioner:
+    _changelog_regex = re.compile(r"^CHANGELOG:\s*(?P<message>.*)$")
+
     # Regular expressions to be run on commit messages to determine which
     # version part to update
-    _version_update_regexes = [
-        (
+    _version_update_regexes: list[VersionUpdateRegex] = [
+        VersionUpdateRegex(
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            re.compile(r"^fix(\(.*\))?:", re.I),
-            VersionUpdateEnum.PATCH,
+            regex=re.compile(r"^fix(\(.*\))?:", re.I),
+            version_update=VersionUpdateEnum.PATCH,
+            commit_type=CommitType.FIX,
         ),
-        (
+        VersionUpdateRegex(
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            re.compile(r"^feat(\(.*\))?:", re.I),
-            VersionUpdateEnum.MINOR,
+            regex=re.compile(r"^feat(\(.*\))?:", re.I),
+            version_update=VersionUpdateEnum.MINOR,
+            commit_type=CommitType.FEATURE,
         ),
-        (
+        VersionUpdateRegex(
             # Commit message starting with (case insensitive):
             # feat(anything)!:
             # feat!:
             # fix(anything)!:
             # fix!:
-            re.compile(r"^(feat|fix)(\(.*\))?!:", re.I),
-            VersionUpdateEnum.MAJOR,
+            regex=re.compile(r"^fix(\(.*\))?!:", re.I),
+            version_update=VersionUpdateEnum.MAJOR,
+            commit_type=CommitType.FIX,
         ),
-        (
+        VersionUpdateRegex(
+            # Commit message starting with (case insensitive):
+            # feat(anything)!:
+            # feat!:
+            # fix(anything)!:
+            # fix!:
+            regex=re.compile(r"^feat(\(.*\))?!:", re.I),
+            version_update=VersionUpdateEnum.MAJOR,
+            commit_type=CommitType.FEATURE,
+        ),
+        VersionUpdateRegex(
             # Commit message starting with (cast insensitive):
             # breaking change:
-            re.compile(r"^breaking\s+change:", re.I),
-            VersionUpdateEnum.MAJOR,
+            regex=re.compile(r"^breaking\s+change:", re.I),
+            version_update=VersionUpdateEnum.MAJOR,
+            commit_type=CommitType.OTHER,
         ),
     ]
 
@@ -98,9 +128,82 @@ class SemanticVersioner:
 
         return True
 
-    def add_main_tags(self) -> bool:
+    def write_changelog(
+        self,
+        changelog_file: str,
+        version: semver.Version,
+        changelog: dict[CommitType, list[str]],
+    ) -> git.Commit:
+        """
+        Write the changelog to the specified file
+        :param changelog_file: The file to write the changelog to
+        :param version: The version the changelog is for
+        :param changelog: The changelog to write
+        :return: The commit object for the new commit
+        """
+        existing_changelog = None
+
+        if os.path.isfile(changelog_file):
+            with open(changelog_file, "r") as fd:
+                existing_changelog = fd.read()
+
+        with open(changelog_file, "w") as fd:
+            fd.write(f"## {version}\n")
+            for commit_type, messages in sorted(changelog.items(), key=lambda x: x[0]):
+                if messages:
+                    fd.write(f"\n### {commit_type.name}\n")
+                    for message in messages:
+                        fd.write(f"- {message}\n")
+            if existing_changelog:
+                fd.write("\n")
+                fd.write(existing_changelog)
+                fd.write("\n")
+
+        return self._repository.index.commit(f"Update changelog for {version}")
+
+    def generate_changelog(
+        self, start_commit: git.Commit, end_commit: git.Commit
+    ) -> dict[CommitType, list[str]]:
+        """
+        Generate a changelog between two commits
+        :param start_commit: The first commit to check from
+        :param end_commit: The last commit to check to
+        :return: A dictionary containing the changelog, with CommitType as the key
+        and a list of commit messages as the value
+        """
+        result: dict[CommitType, list[str]] = {
+            CommitType.FEATURE: [],
+            CommitType.FIX: [],
+            CommitType.OTHER: [],
+        }
+
+        for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+            commit_message = commit.message
+            changelog_messages = []
+            version_update = None
+            commit_type = CommitType.OTHER
+            for line in commit_message.splitlines():
+                changelog_match = self._changelog_regex.match(line)
+
+                if changelog_match:
+                    changelog_messages.append(changelog_match.group("message"))
+
+                for version_update_regex in self._version_update_regexes:
+                    if version_update_regex.regex.match(line):
+                        version_update = version_update_regex.version_update
+                        commit_type = version_update_regex.commit_type
+
+            if changelog_messages and version_update:
+                if version_update == VersionUpdateEnum.MAJOR:
+                    changelog_messages = [message + " (BREAKING CHANGE)" for message in changelog_messages]
+                result[commit_type].extend(changelog_messages)
+
+        return result
+
+    def add_main_tags(self, changelog_file: Optional[str] = None) -> bool:
         """
         Add a new version tag to the main branch of this repository
+        :param changelog_file: The file to write the changelog to
         :return: Whether the process was successful
         """
         (latest_version, latest_version_commit) = self._get_latest_version(
@@ -128,6 +231,10 @@ class SemanticVersioner:
             self._get_version_strings(new_version)[0],
         )
 
+        if changelog_file:
+            changelog = self.generate_changelog(latest_version_commit, self._main_head_commit)
+            self._main_head_commit = self.write_changelog(changelog_file, new_version, changelog)
+
         return self._add_version_tags_to_commit(self._main_head_commit, new_version)
 
     def add_dev_tags(
@@ -135,12 +242,14 @@ class SemanticVersioner:
         dev_branch: str,
         dev_suffix: str,
         dev_version_style: DevVersionStyle,
+        changelog_file: Optional[str] = None,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
         :param dev_branch: The dev branch name
         :param dev_suffix: The suffix to use for dev tags
         :param dev_version_style: The style to use for dev versions
+        :param changelog_file: The file to write the changelog to
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -197,28 +306,55 @@ class SemanticVersioner:
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
         if latest_dev_version.prerelease:
-            latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(".")[1:]
-            log.debug(f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}")
-            if dev_version_style == DevVersionStyle.INCREMENTING and len(latest_dev_version_prerelease_bits) > 1:
+            latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(
+                "."
+            )[1:]
+            log.debug(
+                f"Latest dev version prerelease bits: {latest_dev_version_prerelease_bits}"
+            )
+            if (
+                dev_version_style == DevVersionStyle.INCREMENTING
+                and len(latest_dev_version_prerelease_bits) > 1
+            ):
                 log.debug("Updating prerelease to incrementing")
-                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}")
-            elif dev_version_style == DevVersionStyle.SEMANTIC and len(latest_dev_version_prerelease_bits) == 1:
+                latest_dev_version = latest_dev_version.replace(
+                    prerelease=f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}"
+                )
+            elif (
+                dev_version_style == DevVersionStyle.SEMANTIC
+                and len(latest_dev_version_prerelease_bits) == 1
+            ):
                 log.debug("Updating prerelease to semantic")
-                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0")
+                latest_dev_version = latest_dev_version.replace(
+                    prerelease=f"{dev_suffix}.{latest_dev_version_prerelease_bits[0]}.0.0"
+                )
         else:
             if dev_version_style == DevVersionStyle.INCREMENTING:
-                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0")
-                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0")
+                latest_dev_version = latest_dev_version.replace(
+                    prerelease=f"{dev_suffix}.0"
+                )
+                new_dev_version = new_dev_version.replace(prerelease=f"{dev_suffix}.0")
             else:
-                latest_dev_version = latest_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
-                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.0")
+                latest_dev_version = latest_dev_version.replace(
+                    prerelease=f"{dev_suffix}.0.0.0"
+                )
+                new_dev_version = new_dev_version.replace(
+                    prerelease=f"{dev_suffix}.0.0.0"
+                )
 
         log.debug(f"New dev version: {new_dev_version}")
         log.debug(f"Latest dev version: {latest_dev_version}")
 
-        if dev_version_style == DevVersionStyle.INCREMENTING or dev_version_update_type == VersionUpdateEnum.PATCH:
+        if (
+            dev_version_style == DevVersionStyle.INCREMENTING
+            or dev_version_update_type == VersionUpdateEnum.PATCH
+        ):
             log.debug("Incrementing dev version, or patch update")
-            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+            if (
+                new_dev_version.major,
+                new_dev_version.minor,
+                new_dev_version.patch,
+            ) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
                 latest_dev_version.patch,
@@ -229,22 +365,36 @@ class SemanticVersioner:
             log.debug(f"New dev version: {new_dev_version}")
         else:
             log.debug("Semantic dev versioning")
-            if (new_dev_version.major, new_dev_version.minor, new_dev_version.patch) == (
+            if (
+                new_dev_version.major,
+                new_dev_version.minor,
+                new_dev_version.patch,
+            ) == (
                 latest_dev_version.major,
                 latest_dev_version.minor,
                 latest_dev_version.patch,
             ):
                 try:
-                    prerelease_version = semver.Version.parse(".".join(latest_dev_version_prerelease_bits))
+                    prerelease_version = semver.Version.parse(
+                        ".".join(latest_dev_version_prerelease_bits)
+                    )
                 except ValueError:
-                    prerelease_version = semver.Version.parse(latest_dev_version_prerelease_bits[0])
+                    prerelease_version = semver.Version.parse(
+                        latest_dev_version_prerelease_bits[0]
+                    )
 
                 log.debug(f"Old prerelease version: {prerelease_version}")
-                prerelease_version = self._bump_version(prerelease_version, dev_version_update_type)
+                prerelease_version = self._bump_version(
+                    prerelease_version, dev_version_update_type
+                )
                 log.debug(f"New prerelease version: {prerelease_version}")
-                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.{prerelease_version}")
+                new_dev_version = new_dev_version.replace(
+                    prerelease=f"{dev_suffix}.{prerelease_version}"
+                )
             else:
-                new_dev_version = new_dev_version.replace(prerelease = f"{dev_suffix}.0.0.1")
+                new_dev_version = new_dev_version.replace(
+                    prerelease=f"{dev_suffix}.0.0.1"
+                )
 
             log.debug(f"New dev version: {new_dev_version}")
 
@@ -252,6 +402,10 @@ class SemanticVersioner:
             "new-version",
             self._get_version_strings(new_dev_version)[0],
         )
+
+        if changelog_file:
+            changelog = self.generate_changelog(latest_dev_version_commit, dev_head_commit)
+            dev_head_commit = self.write_changelog(changelog_file, new_dev_version, changelog)
 
         log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
         return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
@@ -333,10 +487,10 @@ class SemanticVersioner:
             for line in commit_message.splitlines():
                 for version_update_regex in self._version_update_regexes:
                     if (
-                        version_update_regex[0].match(line)
-                        and version_update_regex[1] > version_update
+                        version_update_regex.regex.match(line)
+                        and version_update_regex.version_update > version_update
                     ):
-                        version_update = version_update_regex[1]
+                        version_update = version_update_regex.version_update
 
         return version_update
 
@@ -501,6 +655,13 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="Use semantic dev versions",
     )
 
+    parser.add_argument(
+        "-c",
+        "--changelog-file",
+        default=os.getenv("CHANGELOG_FILE"),
+        help="The file to write changelog to",
+    )
+
     result = parser.parse_args(args)
 
     if result.dev_branch and not result.dev_suffix:
@@ -528,6 +689,7 @@ def main(argv: list[str]) -> int:
         log.info(f"Dev branch: {args.dev_branch}")
         log.info(f"Dev suffix: {args.dev_suffix}")
         log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
+
         if not versioner.add_dev_tags(
             args.dev_branch,
             args.dev_suffix,
@@ -536,10 +698,11 @@ def main(argv: list[str]) -> int:
                 if args.use_semantic_dev_versions
                 else DevVersionStyle.INCREMENTING
             ),
+            args.changelog_file,
         ):
             return 1
     else:
-        if not versioner.add_main_tags():
+        if not versioner.add_main_tags(args.changelog_file):
             return 1
 
     if args.push:
