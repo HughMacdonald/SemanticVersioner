@@ -188,15 +188,20 @@ class SemanticVersioner:
             CommitType.OTHER: [],
         }
 
+        log.debug(f"Generating changelog between {start_commit} and {end_commit}")
+
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+            log.debug(f"Checking commit {commit}")
             commit_message = commit.message
             changelog_messages = []
             version_update = None
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
+                log.debug(f"Checking line {line}")
                 changelog_match = self._changelog_regex.match(line)
 
                 if changelog_match:
+                    log.debug(f"Changelog match: {changelog_match.group('message')}")
                     changelog_messages.append(changelog_match.group("message"))
 
                 for version_update_regex in self._version_update_regexes:
@@ -204,7 +209,7 @@ class SemanticVersioner:
                         version_update = version_update_regex.version_update
                         commit_type = version_update_regex.commit_type
 
-            if changelog_messages and version_update:
+            if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
                     changelog_messages = [message + " (BREAKING CHANGE)" for message in changelog_messages]
                 result[commit_type].extend(changelog_messages)
