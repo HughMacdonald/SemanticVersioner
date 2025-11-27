@@ -188,20 +188,15 @@ class SemanticVersioner:
             CommitType.OTHER: [],
         }
 
-        log.debug(f"Generating changelog between {start_commit} and {end_commit}")
-
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
-            log.debug(f"Checking commit {commit}")
             commit_message = commit.message
             changelog_messages = []
             version_update = None
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
-                log.debug(f"Checking line {line}")
                 changelog_match = self._changelog_regex.match(line)
 
                 if changelog_match:
-                    log.debug(f"Changelog match: {changelog_match.group('message')}")
                     changelog_messages.append(changelog_match.group("message"))
 
                 for version_update_regex in self._version_update_regexes:
