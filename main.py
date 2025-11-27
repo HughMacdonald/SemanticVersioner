@@ -10,8 +10,6 @@ from typing import Optional, Tuple
 import git
 import semver
 
-logging.basicConfig(level=logging.DEBUG)
-
 log = logging.getLogger()
 log.setLevel(logging.DEBUG)
 stream_handler = logging.StreamHandler()
