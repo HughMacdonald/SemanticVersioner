@@ -163,7 +163,6 @@ class SemanticVersioner:
             if existing_changelog:
                 fd.write("\n")
                 fd.write(existing_changelog)
-                fd.write("\n")
 
         log.info("Committing changelog")
         self._repository.git.checkout(branch_name)
