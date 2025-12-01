@@ -119,7 +119,8 @@ class SemanticVersioner:
         :return: Whether the initialization was successful
         """
         if not self._no_fetch:
-            self._repository.remote().fetch(tags=True, unshallow=True)
+            is_shallow = self._repository.git.rev_parse("--is-shallow-repository") == "true"
+            self._repository.remote().fetch(tags=True, unshallow=is_shallow)
         self._main_head_commit = self._get_branch_head_commit(self._main_branch)
         if not self._main_head_commit:
             log.error(f"Branch not found: {self._main_branch}")
