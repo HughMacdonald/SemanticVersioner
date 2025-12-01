@@ -174,12 +174,16 @@ class SemanticVersioner:
         return new_commit
 
     def generate_changelog(
-        self, start_commit: git.Commit, end_commit: git.Commit
+        self,
+        start_commit: git.Commit,
+        end_commit: git.Commit,
+        changelog_message: Optional[str],
     ) -> dict[CommitType, list[str]]:
         """
         Generate a changelog between two commits
         :param start_commit: The first commit to check from
         :param end_commit: The last commit to check to
+        :param changelog_message: An optional message to add to the changelog
         :return: A dictionary containing the changelog, with CommitType as the key
         and a list of commit messages as the value
         """
@@ -188,6 +192,9 @@ class SemanticVersioner:
             CommitType.FIX: [],
             CommitType.OTHER: [],
         }
+
+        if changelog_message:
+            result[CommitType.OTHER].append(changelog_message)
 
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
@@ -207,12 +214,18 @@ class SemanticVersioner:
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
-                    changelog_messages = [message + " (BREAKING CHANGE)" for message in changelog_messages]
+                    changelog_messages = [
+                        message + " (BREAKING CHANGE)" for message in changelog_messages
+                    ]
                 result[commit_type].extend(changelog_messages)
 
         return result
 
-    def add_main_tags(self, changelog_file: Optional[str] = None) -> bool:
+    def add_main_tags(
+        self,
+        changelog_file: Optional[str] = None,
+        changelog_message: Optional[str] = None,
+    ) -> bool:
         """
         Add a new version tag to the main branch of this repository
         :param changelog_file: The file to write the changelog to
@@ -244,8 +257,14 @@ class SemanticVersioner:
         )
 
         if changelog_file:
-            changelog = self.generate_changelog(latest_version_commit, self._main_head_commit)
-            self._main_head_commit = self.write_changelog(self._main_branch, changelog_file, new_version, changelog)
+            changelog = self.generate_changelog(
+                latest_version_commit,
+                self._main_head_commit,
+                changelog_message,
+            )
+            self._main_head_commit = self.write_changelog(
+                self._main_branch, changelog_file, new_version, changelog
+            )
 
         return self._add_version_tags_to_commit(self._main_head_commit, new_version)
 
@@ -255,6 +274,7 @@ class SemanticVersioner:
         dev_suffix: str,
         dev_version_style: DevVersionStyle,
         changelog_file: Optional[str] = None,
+        changelog_message: Optional[str] = None,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
@@ -262,6 +282,7 @@ class SemanticVersioner:
         :param dev_suffix: The suffix to use for dev tags
         :param dev_version_style: The style to use for dev versions
         :param changelog_file: The file to write the changelog to
+        :param changelog_message: An optional message to add to the changelog
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -416,8 +437,17 @@ class SemanticVersioner:
         )
 
         if changelog_file:
-            changelog = self.generate_changelog(latest_dev_version_commit, dev_head_commit)
-            dev_head_commit = self.write_changelog(dev_branch, changelog_file, new_dev_version, changelog)
+            changelog = self.generate_changelog(
+                latest_dev_version_commit,
+                dev_head_commit,
+                changelog_message,
+            )
+            dev_head_commit = self.write_changelog(
+                dev_branch,
+                changelog_file,
+                new_dev_version,
+                changelog,
+            )
 
         log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
         return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
@@ -674,6 +704,13 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="The file to write changelog to",
     )
 
+    parser.add_argument(
+        "-m",
+        "--changelog-message",
+        default=os.getenv("CHANGELOG_MESSAGE"),
+        help="An optional changelog message to add",
+    )
+
     result = parser.parse_args(args)
 
     if result.dev_branch and not result.dev_suffix:
@@ -712,10 +749,14 @@ def main(argv: list[str]) -> int:
                 else DevVersionStyle.INCREMENTING
             ),
             args.changelog_file,
+            args.changelog_message,
         ):
             return 1
     else:
-        if not versioner.add_main_tags(args.changelog_file):
+        if not versioner.add_main_tags(
+            args.changelog_file,
+            args.changelog_message,
+        ):
             return 1
 
     if args.push:

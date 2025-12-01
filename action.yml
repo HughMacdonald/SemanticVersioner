@@ -35,6 +35,10 @@ inputs:
     description: The file to write the changelog to
     required: false
     default: ""
+  changelog-message:
+    description: An optional changelog message to add
+    required: false
+    default: ""
 
 
 outputs:
@@ -77,6 +81,7 @@ runs:
         INCLUDE_SHORTER_VERSIONS: ${{ inputs.include-shorter-versions }}
         USE_SEMANTIC_DEV_VERSIONS: ${{ inputs.use-semantic-dev-versions }}
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
+        CHANGELOG_MESSAGE: ${{ inputs.changelog-message }}
         PUSH: 1
 
 branding:
