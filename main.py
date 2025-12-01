@@ -705,7 +705,7 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
     )
 
     parser.add_argument(
-        "-m",
+        "-g",
         "--changelog-message",
         default=os.getenv("CHANGELOG_MESSAGE"),
         help="An optional changelog message to add",
