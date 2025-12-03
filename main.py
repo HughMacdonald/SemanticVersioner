@@ -154,9 +154,7 @@ class SemanticVersioner:
                 existing_changelog = fd.read()
 
         with open(changelog_file, "w") as fd:
-            fd.write(f"## {version}\n")
-            fd.write("\n")
-            fd.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
+            fd.write(f"## {version} ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})\n")
             for commit_type, messages in sorted(changelog.items(), key=lambda x: x[0]):
                 if messages:
                     log.debug(f"Writing changelog for {commit_type.name}")
