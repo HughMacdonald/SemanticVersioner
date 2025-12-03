@@ -159,8 +159,10 @@ class SemanticVersioner:
             fd.write(f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}\n")
             for commit_type, messages in sorted(changelog.items(), key=lambda x: x[0]):
                 if messages:
+                    log.debug(f"Writing changelog for {commit_type.name}")
                     fd.write(f"\n### {commit_type.name}\n")
                     for message in messages:
+                        log.debug(f"Writing changelog message: {message}")
                         fd.write(f"- {message}\n")
             if existing_changelog:
                 fd.write("\n")
@@ -189,6 +191,8 @@ class SemanticVersioner:
         :return: A dictionary containing the changelog, with CommitType as the key
         and a list of commit messages as the value
         """
+        log.info(f"Generating changelog between {start_commit} and {end_commit}")
+
         result: dict[CommitType, list[str]] = {
             CommitType.FEATURE: [],
             CommitType.FIX: [],
