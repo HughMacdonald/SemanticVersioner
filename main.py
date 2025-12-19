@@ -54,7 +54,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            regex=re.compile(r"^fix(\(.*\))?:", re.I),
+            regex=re.compile(r"^fix(\(?P<scope>.*\))?:", re.I),
             version_update=VersionUpdateEnum.PATCH,
             commit_type=CommitType.FIX,
         ),
@@ -62,7 +62,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            regex=re.compile(r"^feat(\(.*\))?:", re.I),
+            regex=re.compile(r"^feat(\(?P<scope>.*\))?:", re.I),
             version_update=VersionUpdateEnum.MINOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -72,7 +72,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^fix(\(.*\))?!:", re.I),
+            regex=re.compile(r"^fix(\(?P<scope>.*\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FIX,
         ),
@@ -82,7 +82,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^feat(\(.*\))?!:", re.I),
+            regex=re.compile(r"^feat(\(?P<scope>.*\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -135,7 +135,7 @@ class SemanticVersioner:
         branch_name: str,
         changelog_file: str,
         version: semver.Version,
-        changelog: dict[CommitType, list[str]],
+        changelog: dict[Optional[str], dict[CommitType, list[str]]],
     ) -> git.Commit:
         """
         Write the changelog to the specified file
@@ -155,13 +155,15 @@ class SemanticVersioner:
 
         with open(changelog_file, "w") as fd:
             fd.write(f"## {version} ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})\n")
-            for commit_type, messages in sorted(changelog.items(), key=lambda x: x[0]):
-                if messages:
-                    log.debug(f"Writing changelog for {commit_type.name}")
-                    fd.write(f"\n### {commit_type.name}\n")
-                    for message in messages:
-                        log.debug(f"Writing changelog message: {message}")
-                        fd.write(f"- {message}\n")
+            for scope, commits in sorted(changelog.items(), key=lambda x: (x[0] is None, x[0])):
+                if not scope:
+                    scope = "Other"
+                fd.write(f"\n### {scope}\n")
+                for commit_type, messages in sorted(commits.items(), key=lambda x: x[0]):
+                    if messages:
+                        fd.write(f"\n#### {commit_type.name}\n")
+                        for message in messages:
+                            fd.write(f"- {message}\n")
             if existing_changelog:
                 fd.write("\n")
                 fd.write(existing_changelog)
@@ -180,7 +182,7 @@ class SemanticVersioner:
         start_commit: git.Commit,
         end_commit: git.Commit,
         changelog_message: Optional[str],
-    ) -> dict[CommitType, list[str]]:
+    ) -> dict[Optional[str], dict[CommitType, list[str]]]:
         """
         Generate a changelog between two commits
         :param start_commit: The first commit to check from
@@ -191,19 +193,16 @@ class SemanticVersioner:
         """
         log.info(f"Generating changelog between {start_commit} and {end_commit}")
 
-        result: dict[CommitType, list[str]] = {
-            CommitType.FEATURE: [],
-            CommitType.FIX: [],
-            CommitType.OTHER: [],
-        }
+        result: dict[Optional[str], dict[CommitType, list[str]]] = {}
 
         if changelog_message:
-            result[CommitType.OTHER].append(changelog_message)
+            result[None] = {CommitType.OTHER: [changelog_message]}
 
         for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
             commit_message = commit.message
             changelog_messages = []
             version_update = None
+            scope = None
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
                 changelog_match = self._changelog_regex.match(line)
@@ -212,16 +211,22 @@ class SemanticVersioner:
                     changelog_messages.append(changelog_match.group("message"))
 
                 for version_update_regex in self._version_update_regexes:
-                    if version_update_regex.regex.match(line):
+                    version_update_match = version_update_regex.regex.match(line)
+                    if version_update_match:
                         version_update = version_update_regex.version_update
                         commit_type = version_update_regex.commit_type
+                        scope = version_update_match.group("scope")
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
                     changelog_messages = [
                         message + " (BREAKING CHANGE)" for message in changelog_messages
                     ]
-                result[commit_type].extend(changelog_messages)
+                if scope not in result:
+                    result[scope] = {}
+                if commit_type not in result[scope]:
+                    result[scope][commit_type] = []
+                result[scope][commit_type].extend(changelog_messages)
 
         return result
 
@@ -233,6 +238,7 @@ class SemanticVersioner:
         """
         Add a new version tag to the main branch of this repository
         :param changelog_file: The file to write the changelog to
+        :param changelog_message: An optional message to add to the changelog
         :return: Whether the process was successful
         """
         (latest_version, latest_version_commit) = self._get_latest_version(
@@ -342,6 +348,7 @@ class SemanticVersioner:
         )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
+        latest_dev_version_prerelease_bits = []
         if latest_dev_version.prerelease:
             latest_dev_version_prerelease_bits = latest_dev_version.prerelease.split(
                 "."
