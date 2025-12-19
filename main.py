@@ -158,7 +158,7 @@ class SemanticVersioner:
             for scope, commits in sorted(changelog.items(), key=lambda x: (x[0] is None, x[0])):
                 if not scope:
                     scope = "Other"
-                fd.write(f"\n### {self.split_scope_words(scope)}\n")
+                fd.write(f"\n### {scope}\n")
                 for commit_type, messages in sorted(commits.items(), key=lambda x: x[0]):
                     if messages:
                         fd.write(f"\n#### {commit_type.name}\n")
@@ -216,6 +216,8 @@ class SemanticVersioner:
                         version_update = version_update_regex.version_update
                         commit_type = version_update_regex.commit_type
                         scope = version_update_match.group("scope")
+                        if scope:
+                            scope = self.split_scope_words(scope)
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
