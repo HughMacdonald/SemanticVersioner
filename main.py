@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import itertools
 import logging
 import os
 import re
@@ -54,7 +55,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            regex=re.compile(r"^fix(\((?P<scope>.*)\))?:", re.I),
+            regex=re.compile(r"^fix(\((?P<scopes>.*)\))?:", re.I),
             version_update=VersionUpdateEnum.PATCH,
             commit_type=CommitType.FIX,
         ),
@@ -62,7 +63,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            regex=re.compile(r"^feat(\((?P<scope>.*)\))?:", re.I),
+            regex=re.compile(r"^feat(\((?P<scopes>.*)\))?:", re.I),
             version_update=VersionUpdateEnum.MINOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -72,7 +73,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^fix(\((?P<scope>.*)\))?!:", re.I),
+            regex=re.compile(r"^fix(\((?P<scopes>.*)\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FIX,
         ),
@@ -82,7 +83,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^feat(\((?P<scope>.*)\))?!:", re.I),
+            regex=re.compile(r"^feat(\((?P<scopes>.*)\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -202,7 +203,7 @@ class SemanticVersioner:
             commit_message = commit.message
             changelog_messages = []
             version_update = None
-            scope = None
+            scopes = []
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
                 changelog_match = self._changelog_regex.match(line)
@@ -215,20 +216,21 @@ class SemanticVersioner:
                     if version_update_match:
                         version_update = version_update_regex.version_update
                         commit_type = version_update_regex.commit_type
-                        scope = version_update_match.group("scope")
-                        if scope:
-                            scope = self.split_scope_words(scope)
+                        scopes_str = version_update_match.group("scopes")
+                        if scopes_str:
+                            scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
                     changelog_messages = [
                         message + " (BREAKING CHANGE)" for message in changelog_messages
                     ]
-                if scope not in result:
-                    result[scope] = {}
-                if commit_type not in result[scope]:
-                    result[scope][commit_type] = []
-                result[scope][commit_type].extend(changelog_messages)
+                for scope in scopes:
+                    if scope not in result:
+                        result[scope] = {}
+                    if commit_type not in result[scope]:
+                        result[scope][commit_type] = []
+                    result[scope][commit_type].extend(changelog_messages)
 
         return result
 
@@ -245,14 +247,6 @@ class SemanticVersioner:
 
     @classmethod
     def split_scope_words(cls, scope: str) -> str:
-        scope_bits = scope.split(",")
-        if len(scope_bits) > 1:
-            return ", ".join([cls.split_scope_words(scope_bit) for scope_bit in scope_bits])
-
-        scope_bits = scope.split("/")
-        if len(scope_bits) > 1:
-            return "/".join([cls.split_scope_words(scope_bit) for scope_bit in scope_bits])
-
         if not scope:
             return ""
 
