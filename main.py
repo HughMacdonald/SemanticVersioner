@@ -54,7 +54,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # fix(anything):
             # fix:
-            regex=re.compile(r"^fix(\(?P<scope>.*\))?:", re.I),
+            regex=re.compile(r"^fix(\((?P<scope>.*)\))?:", re.I),
             version_update=VersionUpdateEnum.PATCH,
             commit_type=CommitType.FIX,
         ),
@@ -62,7 +62,7 @@ class SemanticVersioner:
             # Commit message starting with (case insensitive):
             # feat(anything):
             # feat:
-            regex=re.compile(r"^feat(\(?P<scope>.*\))?:", re.I),
+            regex=re.compile(r"^feat(\((?P<scope>.*)\))?:", re.I),
             version_update=VersionUpdateEnum.MINOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -72,7 +72,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^fix(\(?P<scope>.*\))?!:", re.I),
+            regex=re.compile(r"^fix(\((?P<scope>.*)\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FIX,
         ),
@@ -82,7 +82,7 @@ class SemanticVersioner:
             # feat!:
             # fix(anything)!:
             # fix!:
-            regex=re.compile(r"^feat(\(?P<scope>.*\))?!:", re.I),
+            regex=re.compile(r"^feat(\((?P<scope>.*)\))?!:", re.I),
             version_update=VersionUpdateEnum.MAJOR,
             commit_type=CommitType.FEATURE,
         ),
@@ -158,7 +158,7 @@ class SemanticVersioner:
             for scope, commits in sorted(changelog.items(), key=lambda x: (x[0] is None, x[0])):
                 if not scope:
                     scope = "Other"
-                fd.write(f"\n### {scope}\n")
+                fd.write(f"\n### {self.split_scope_words(scope)}\n")
                 for commit_type, messages in sorted(commits.items(), key=lambda x: x[0]):
                     if messages:
                         fd.write(f"\n#### {commit_type.name}\n")
@@ -229,6 +229,34 @@ class SemanticVersioner:
                 result[scope][commit_type].extend(changelog_messages)
 
         return result
+
+    WORD_BOUNDARY_RE = re.compile(
+        r"""
+        # Split before capitals in camelCase/PascalCase
+        (?<=[a-z0-9])(?=[A-Z]) |
+        # Split between acronym and word: HTTPServer -> HTTP Server
+        (?<=[A-Z])(?=[A-Z][a-z]) |
+        # Existing separators: snake_case, kebab-case
+        [_\-]+
+    """, re.VERBOSE
+        )
+
+    @classmethod
+    def split_scope_words(cls, scope: str) -> str:
+        scope_bits = scope.split(",")
+        if len(scope_bits) > 1:
+            return ", ".join([cls.split_scope_words(scope_bit) for scope_bit in scope_bits])
+
+        scope_bits = scope.split("/")
+        if len(scope_bits) > 1:
+            return "/".join([cls.split_scope_words(scope_bit) for scope_bit in scope_bits])
+
+        if not scope:
+            return ""
+
+        spaced = cls.WORD_BOUNDARY_RE.sub(" ", scope)
+        spaced = re.sub(r"\s+", " ", spaced).strip()
+        return spaced.title()
 
     def add_main_tags(
         self,
