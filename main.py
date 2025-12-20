@@ -22,9 +22,9 @@ log.addHandler(stream_handler)
 
 
 class CommitType(IntEnum):
-    FEATURE = 0
+    OTHER = 0
     FIX = 1
-    OTHER = 2
+    FEATURE = 2
 
 
 class VersionUpdateEnum(IntEnum):
@@ -51,6 +51,13 @@ class SemanticVersioner:
     # Regular expressions to be run on commit messages to determine which
     # version part to update
     _version_update_regexes: list[VersionUpdateRegex] = [
+        VersionUpdateRegex(
+            # Commit message starting with (case insensitive):
+            # anything(anything):
+            regex=re.compile(r"^\w+\((?P<scopes>.*)\):", re.I),
+            version_update=VersionUpdateEnum.PATCH,
+            commit_type=CommitType.OTHER,
+        ),
         VersionUpdateRegex(
             # Commit message starting with (case insensitive):
             # fix(anything):
@@ -206,6 +213,8 @@ class SemanticVersioner:
             scopes = []
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
+                if not line:
+                    continue
                 changelog_match = self._changelog_regex.match(line)
 
                 if changelog_match:
@@ -214,8 +223,11 @@ class SemanticVersioner:
                 for version_update_regex in self._version_update_regexes:
                     version_update_match = version_update_regex.regex.match(line)
                     if version_update_match:
-                        version_update = version_update_regex.version_update
-                        commit_type = version_update_regex.commit_type
+                        if version_update:
+                            version_update = max(version_update, version_update_regex.version_update)
+                        else:
+                            version_update = version_update_regex.version_update
+                        commit_type = max(commit_type, version_update_regex.commit_type)
                         scopes_str = version_update_match.group("scopes")
                         if scopes_str:
                             scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
