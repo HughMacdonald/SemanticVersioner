@@ -254,17 +254,41 @@ class SemanticVersioner:
         (?<=[A-Z])(?=[A-Z][a-z]) |
         # Existing separators: snake_case, kebab-case
         [_\-]+
-    """, re.VERBOSE
-        )
+        """,
+        re.VERBOSE,
+    )
 
     @classmethod
     def split_scope_words(cls, scope: str) -> str:
         if not scope:
             return ""
 
+        # First split the original into logical words
+        original_words = [
+            w for w in cls.WORD_BOUNDARY_RE.sub(" ", scope).split() if w
+        ]
+
+        # Title-case the spaced version
         spaced = cls.WORD_BOUNDARY_RE.sub(" ", scope)
         spaced = re.sub(r"\s+", " ", spaced).strip()
-        return spaced.title()
+        titled = spaced.title()
+
+        # Split the titled string into words
+        titled_words = titled.split()
+
+        # Restore fully-upper tokens from the original
+        fixed_words = []
+        for orig, tit in zip(original_words, titled_words):
+            if orig.isupper():
+                fixed_words.append(orig)
+            else:
+                fixed_words.append(tit)
+
+        # If for some reason lengths differ, just append any extras from titled
+        if len(titled_words) > len(fixed_words):
+            fixed_words.extend(titled_words[len(fixed_words):])
+
+        return " ".join(fixed_words)
 
     def add_main_tags(
         self,
