@@ -54,7 +54,7 @@ class SemanticVersioner:
         VersionUpdateRegex(
             # Commit message starting with (case insensitive):
             # anything(anything):
-            regex=re.compile(r"^\w+\((?P<scopes>.*)\):", re.I),
+            regex=re.compile(r"^\w+(\((?P<scopes>.*)\))?:", re.I),
             version_update=VersionUpdateEnum.PATCH,
             commit_type=CommitType.OTHER,
         ),
@@ -231,6 +231,8 @@ class SemanticVersioner:
                         scopes_str = version_update_match.group("scopes")
                         if scopes_str:
                             scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
+                        else:
+                            scopes = [None]
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
