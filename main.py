@@ -219,20 +219,20 @@ class SemanticVersioner:
 
                 if changelog_match:
                     changelog_messages.append(changelog_match.group("message"))
-
-                for version_update_regex in self._version_update_regexes:
-                    version_update_match = version_update_regex.regex.match(line)
-                    if version_update_match:
-                        if version_update:
-                            version_update = max(version_update, version_update_regex.version_update)
-                        else:
-                            version_update = version_update_regex.version_update
-                        commit_type = max(commit_type, version_update_regex.commit_type)
-                        scopes_str = version_update_match.group("scopes")
-                        if scopes_str:
-                            scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
-                        else:
-                            scopes = [None]
+                else:
+                    for version_update_regex in self._version_update_regexes:
+                        version_update_match = version_update_regex.regex.match(line)
+                        if version_update_match:
+                            if version_update:
+                                version_update = max(version_update, version_update_regex.version_update)
+                            else:
+                                version_update = version_update_regex.version_update
+                            commit_type = max(commit_type, version_update_regex.commit_type)
+                            scopes_str = version_update_match.group("scopes")
+                            if scopes_str:
+                                scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
+                            else:
+                                scopes = [None]
 
             if changelog_messages:
                 if version_update == VersionUpdateEnum.MAJOR:
