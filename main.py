@@ -455,6 +455,11 @@ class SemanticVersioner:
             dev_version_style == DevVersionStyle.INCREMENTING
             or dev_version_update_type == VersionUpdateEnum.PATCH
         ):
+            if not new_dev_version.prerelease and dev_version_style == DevVersionStyle.SEMANTIC:
+                new_dev_version = new_dev_version.replace(
+                    prerelease=f"{dev_suffix}.0.0.0"
+                )
+
             log.debug("Incrementing dev version, or patch update")
             if (
                 new_dev_version.major,
