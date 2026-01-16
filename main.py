@@ -228,7 +228,7 @@ class SemanticVersioner:
                             else:
                                 version_update = version_update_regex.version_update
                             commit_type = max(commit_type, version_update_regex.commit_type)
-                            scopes_str = version_update_match.group("scopes")
+                            scopes_str = version_update_match.group("scopes") if "scopes" in version_update_match.groupdict() else None
                             if scopes_str:
                                 scopes = list(itertools.chain(*[[self.split_scope_words(s.strip()) for s in s.split("/")] for s in scopes_str.split(",")]))
                             else:
