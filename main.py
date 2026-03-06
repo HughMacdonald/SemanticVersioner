@@ -296,11 +296,13 @@ class SemanticVersioner:
         self,
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
+        dry_run: bool = False,
     ) -> bool:
         """
         Add a new version tag to the main branch of this repository
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
+        :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
         (latest_version, latest_version_commit) = self._get_latest_version(
@@ -328,6 +330,10 @@ class SemanticVersioner:
             self._get_version_strings(new_version)[0],
         )
 
+        if dry_run:
+            log.info(f"Dry run: would create version {new_version}")
+            return True
+
         if changelog_file:
             changelog = self.generate_changelog(
                 latest_version_commit,
@@ -347,6 +353,7 @@ class SemanticVersioner:
         dev_version_style: DevVersionStyle,
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
+        dry_run: bool = False,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
@@ -355,6 +362,7 @@ class SemanticVersioner:
         :param dev_version_style: The style to use for dev versions
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
+        :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -513,6 +521,10 @@ class SemanticVersioner:
             "new-version",
             self._get_version_strings(new_dev_version)[0],
         )
+
+        if dry_run:
+            log.info(f"Dry run: would create version {new_dev_version}")
+            return True
 
         if changelog_file:
             changelog = self.generate_changelog(
@@ -789,6 +801,16 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="An optional changelog message to add",
     )
 
+    parser.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        default=(
+            os.getenv("DRY_RUN", "0").lower() in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Only calculate and output the version without creating tags or writing changelog",
+    )
+
     result = parser.parse_args(args)
 
     if result.dev_branch and not result.dev_suffix:
@@ -806,6 +828,7 @@ def main(argv: list[str]) -> int:
     log.info(f"Repository: {args.repository}")
     log.info(f"Main branch: {args.main_branch}")
     log.info(f"Changelog file: {args.changelog_file}")
+    log.info(f"Dry run: {args.dry_run}")
 
     versioner = SemanticVersioner(
         args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
@@ -828,16 +851,18 @@ def main(argv: list[str]) -> int:
             ),
             args.changelog_file,
             args.changelog_message,
+            args.dry_run,
         ):
             return 1
     else:
         if not versioner.add_main_tags(
             args.changelog_file,
             args.changelog_message,
+            args.dry_run,
         ):
             return 1
 
-    if args.push:
+    if args.push and not args.dry_run:
         if not versioner.push_tags():
             return 1
 
