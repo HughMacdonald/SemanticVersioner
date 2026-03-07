@@ -187,13 +187,14 @@ class SemanticVersioner:
 
     def generate_changelog(
         self,
-        start_commit: git.Commit,
+        start_commit: Optional[git.Commit],
         end_commit: git.Commit,
         changelog_message: Optional[str],
     ) -> dict[Optional[str], dict[CommitType, list[str]]]:
         """
         Generate a changelog between two commits
-        :param start_commit: The first commit to check from
+        :param start_commit: The first commit to check from, or None to include
+        all commits up to end_commit
         :param end_commit: The last commit to check to
         :param changelog_message: An optional message to add to the changelog
         :return: A dictionary containing the changelog, with CommitType as the key
@@ -206,7 +207,11 @@ class SemanticVersioner:
         if changelog_message:
             result[None] = {CommitType.OTHER: [changelog_message]}
 
-        for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+        if start_commit is None:
+            commits = self._repository.iter_commits(end_commit)
+        else:
+            commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
+        for commit in commits:
             commit_message = commit.message
             changelog_messages = []
             version_update = None
@@ -308,6 +313,12 @@ class SemanticVersioner:
         (latest_version, latest_version_commit) = self._get_latest_version(
             self._main_head_commit, False
         )
+
+        if latest_version is None:
+            log.warning("No previous version found, assuming v0.0.0")
+            latest_version = semver.Version.parse("0.0.0")
+            latest_version_commit = None
+
         if latest_version_commit == self._main_head_commit:
             log.error(
                 "Cannot add new version tag to commit that already has a version tag"
@@ -373,13 +384,15 @@ class SemanticVersioner:
             dev_head_commit
         )
 
-        if not latest_main_version:
-            log.error("Could not find the latest main version")
-            return False
+        if latest_main_version is None:
+            log.warning("No previous main version found, assuming v0.0.0")
+            latest_main_version = semver.Version.parse("0.0.0")
+            latest_main_version_commit = None
 
-        if not latest_dev_version:
-            log.error("Could not find the latest dev version")
-            return False
+        if latest_dev_version is None:
+            log.warning("No previous dev version found, assuming v0.0.0")
+            latest_dev_version = semver.Version.parse("0.0.0")
+            latest_dev_version_commit = None
 
         if latest_dev_version_commit == dev_head_commit:
             log.error(
@@ -603,18 +616,23 @@ class SemanticVersioner:
 
     def _get_version_update_type(
         self,
-        start_commit: git.Commit,
+        start_commit: Optional[git.Commit],
         end_commit: git.Commit,
     ) -> VersionUpdateEnum:
         """
         Iterate over all commits between start_commit and end_commit to determine
         what kind of version update should be applied
-        :param start_commit: The first commit to check from
+        :param start_commit: The first commit to check from, or None to check all
+        commits up to end_commit
         :param end_commit: The last commit to check to
         :return: The VersionUpdateEnum value specifying the type of version update
         """
         version_update = VersionUpdateEnum.PATCH
-        for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+        if start_commit is None:
+            commits = self._repository.iter_commits(end_commit)
+        else:
+            commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
+        for commit in commits:
             commit_message = commit.message
             for line in commit_message.splitlines():
                 for version_update_regex in self._version_update_regexes:
@@ -664,7 +682,7 @@ class SemanticVersioner:
                 log.info(f"Returning version: {tag['version']}")
                 return tag["version"], tag["tag"].commit
 
-        log.error(f"Not found latest version on {commit}")
+        log.warning(f"Not found latest version on {commit}")
         return None, None
 
     def _get_version_strings(self, version: semver.Version) -> list[str]:
