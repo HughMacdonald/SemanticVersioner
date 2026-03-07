@@ -39,6 +39,10 @@ inputs:
     description: An optional changelog message to add
     required: false
     default: ""
+  dry-run:
+    description: Only calculate and output the version without creating tags or writing changelog
+    required: false
+    default: "false"
 
 outputs:
   previous-version:
@@ -81,6 +85,7 @@ runs:
         USE_SEMANTIC_DEV_VERSIONS: ${{ inputs.use-semantic-dev-versions }}
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         CHANGELOG_MESSAGE: ${{ inputs.changelog-message }}
+        DRY_RUN: ${{ inputs.dry-run }}
         PUSH: 1
 
 branding:

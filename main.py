@@ -187,13 +187,14 @@ class SemanticVersioner:
 
     def generate_changelog(
         self,
-        start_commit: git.Commit,
+        start_commit: Optional[git.Commit],
         end_commit: git.Commit,
         changelog_message: Optional[str],
     ) -> dict[Optional[str], dict[CommitType, list[str]]]:
         """
         Generate a changelog between two commits
-        :param start_commit: The first commit to check from
+        :param start_commit: The first commit to check from, or None to include
+        all commits up to end_commit
         :param end_commit: The last commit to check to
         :param changelog_message: An optional message to add to the changelog
         :return: A dictionary containing the changelog, with CommitType as the key
@@ -206,7 +207,11 @@ class SemanticVersioner:
         if changelog_message:
             result[None] = {CommitType.OTHER: [changelog_message]}
 
-        for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+        if start_commit is None:
+            commits = self._repository.iter_commits(end_commit)
+        else:
+            commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
+        for commit in commits:
             commit_message = commit.message
             changelog_messages = []
             version_update = None
@@ -296,16 +301,24 @@ class SemanticVersioner:
         self,
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
+        dry_run: bool = False,
     ) -> bool:
         """
         Add a new version tag to the main branch of this repository
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
+        :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
         (latest_version, latest_version_commit) = self._get_latest_version(
             self._main_head_commit, False
         )
+
+        if latest_version is None:
+            log.warning("No previous version found, assuming v0.0.0")
+            latest_version = semver.Version.parse("0.0.0")
+            latest_version_commit = None
+
         if latest_version_commit == self._main_head_commit:
             log.error(
                 "Cannot add new version tag to commit that already has a version tag"
@@ -328,6 +341,10 @@ class SemanticVersioner:
             self._get_version_strings(new_version)[0],
         )
 
+        if dry_run:
+            log.info(f"Dry run: would create version {new_version}")
+            return True
+
         if changelog_file:
             changelog = self.generate_changelog(
                 latest_version_commit,
@@ -347,6 +364,7 @@ class SemanticVersioner:
         dev_version_style: DevVersionStyle,
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
+        dry_run: bool = False,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
@@ -355,6 +373,7 @@ class SemanticVersioner:
         :param dev_version_style: The style to use for dev versions
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
+        :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
         dev_head_commit = self._get_branch_head_commit(dev_branch)
@@ -365,13 +384,15 @@ class SemanticVersioner:
             dev_head_commit
         )
 
-        if not latest_main_version:
-            log.error("Could not find the latest main version")
-            return False
+        if latest_main_version is None:
+            log.warning("No previous main version found, assuming v0.0.0")
+            latest_main_version = semver.Version.parse("0.0.0")
+            latest_main_version_commit = None
 
-        if not latest_dev_version:
-            log.error("Could not find the latest dev version")
-            return False
+        if latest_dev_version is None:
+            log.warning("No previous dev version found, assuming v0.0.0")
+            latest_dev_version = semver.Version.parse("0.0.0")
+            latest_dev_version_commit = None
 
         if latest_dev_version_commit == dev_head_commit:
             log.error(
@@ -514,6 +535,10 @@ class SemanticVersioner:
             self._get_version_strings(new_dev_version)[0],
         )
 
+        if dry_run:
+            log.info(f"Dry run: would create version {new_dev_version}")
+            return True
+
         if changelog_file:
             changelog = self.generate_changelog(
                 latest_dev_version_commit,
@@ -591,18 +616,23 @@ class SemanticVersioner:
 
     def _get_version_update_type(
         self,
-        start_commit: git.Commit,
+        start_commit: Optional[git.Commit],
         end_commit: git.Commit,
     ) -> VersionUpdateEnum:
         """
         Iterate over all commits between start_commit and end_commit to determine
         what kind of version update should be applied
-        :param start_commit: The first commit to check from
+        :param start_commit: The first commit to check from, or None to check all
+        commits up to end_commit
         :param end_commit: The last commit to check to
         :return: The VersionUpdateEnum value specifying the type of version update
         """
         version_update = VersionUpdateEnum.PATCH
-        for commit in self._repository.iter_commits(f"{start_commit}..{end_commit}"):
+        if start_commit is None:
+            commits = self._repository.iter_commits(end_commit)
+        else:
+            commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
+        for commit in commits:
             commit_message = commit.message
             for line in commit_message.splitlines():
                 for version_update_regex in self._version_update_regexes:
@@ -652,7 +682,7 @@ class SemanticVersioner:
                 log.info(f"Returning version: {tag['version']}")
                 return tag["version"], tag["tag"].commit
 
-        log.error(f"Not found latest version on {commit}")
+        log.warning(f"Not found latest version on {commit}")
         return None, None
 
     def _get_version_strings(self, version: semver.Version) -> list[str]:
@@ -789,6 +819,16 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="An optional changelog message to add",
     )
 
+    parser.add_argument(
+        "-n",
+        "--dry-run",
+        action="store_true",
+        default=(
+            os.getenv("DRY_RUN", "0").lower() in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Only calculate and output the version without creating tags or writing changelog",
+    )
+
     result = parser.parse_args(args)
 
     if result.dev_branch and not result.dev_suffix:
@@ -806,6 +846,7 @@ def main(argv: list[str]) -> int:
     log.info(f"Repository: {args.repository}")
     log.info(f"Main branch: {args.main_branch}")
     log.info(f"Changelog file: {args.changelog_file}")
+    log.info(f"Dry run: {args.dry_run}")
 
     versioner = SemanticVersioner(
         args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
@@ -828,16 +869,18 @@ def main(argv: list[str]) -> int:
             ),
             args.changelog_file,
             args.changelog_message,
+            args.dry_run,
         ):
             return 1
     else:
         if not versioner.add_main_tags(
             args.changelog_file,
             args.changelog_message,
+            args.dry_run,
         ):
             return 1
 
-    if args.push:
+    if args.push and not args.dry_run:
         if not versioner.push_tags():
             return 1
 
