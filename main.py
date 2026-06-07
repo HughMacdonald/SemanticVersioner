@@ -125,12 +125,27 @@ class SemanticVersioner:
         no_fetch: bool,
         main_branch: str,
         include_shorter_versions: bool,
+        preview: bool = False,
     ):
         self._repository = git.Repo(repository_path)
         self._no_fetch = no_fetch
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
         self._include_shorter_versions = include_shorter_versions
+        # When True, the versioner is in read-only preview mode and must never
+        # mutate the local repository or the remote (no commits, tags or pushes).
+        self._preview = preview
+
+    def _ensure_not_preview(self, operation: str) -> None:
+        """
+        Guard against any mutating operation while in preview mode.
+        :param operation: A human-readable description of the attempted mutation
+        :raises RuntimeError: If the versioner is in preview mode
+        """
+        if self._preview:
+            raise RuntimeError(
+                f"Refusing to {operation} in preview mode (preview is read-only)"
+            )
 
     def initialize(self) -> bool:
         """
@@ -162,6 +177,8 @@ class SemanticVersioner:
         :param rendered_changelog_markdown: The rendered changelog markdown to write
         :return: The commit object for the new commit
         """
+        self._ensure_not_preview("write the changelog")
+
         existing_changelog = None
 
         log.info(f"Writing changelog file to {changelog_file}")
@@ -652,6 +669,7 @@ class SemanticVersioner:
         Push all tags to the remote repository
         :return: Whether the process was successful
         """
+        self._ensure_not_preview("push tags")
         self._repository.git.push("origin", "--tags")
         return True
 
@@ -666,6 +684,8 @@ class SemanticVersioner:
         :param version: The version to use for the tag name
         :return: Whether this process was successful
         """
+        self._ensure_not_preview("create version tags")
+
         existing_tags = {tag.name: tag for tag in self._repository.tags}
         tag_names = self._get_version_strings(version)
 
@@ -1024,7 +1044,11 @@ def main(argv: list[str]) -> int:
     log.info(f"Preview changelog: {args.preview_changelog}")
 
     versioner = SemanticVersioner(
-        args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
+        args.repository,
+        args.no_fetch,
+        args.main_branch,
+        args.include_shorter_versions,
+        preview=args.preview_changelog,
     )
     if not versioner.initialize():
         return 1

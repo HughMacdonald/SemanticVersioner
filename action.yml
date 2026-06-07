@@ -110,7 +110,7 @@ runs:
         TARGET_REF: ${{ inputs.target-ref }}
         PRINT_CHANGELOG: ${{ inputs.print-changelog }}
         PREVIEW_OUTPUT_FILE: ${{ inputs.preview-output-file }}
-        PUSH: 1
+        PUSH: ${{ (contains(fromJSON('["1", "y", "yes", "on", "true", "t"]'), inputs.preview-changelog) || contains(fromJSON('["1", "y", "yes", "on", "true", "t"]'), inputs.dry-run)) && '0' || '1' }}
 
 branding:
   color: blue
