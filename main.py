@@ -610,7 +610,18 @@ class SemanticVersioner:
                 )
 
             log.debug("Incrementing dev version, or patch update")
-            new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
+            if (
+                new_dev_version.major,
+                new_dev_version.minor,
+                new_dev_version.patch,
+            ) == (
+                latest_dev_version.major,
+                latest_dev_version.minor,
+                latest_dev_version.patch,
+            ):
+                new_dev_version = latest_dev_version.bump_prerelease(dev_suffix)
+            else:
+                new_dev_version = new_dev_version.bump_prerelease(dev_suffix)
             log.debug(f"New dev version: {new_dev_version}")
         else:
             log.debug("Semantic dev versioning")
