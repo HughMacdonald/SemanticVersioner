@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import uuid
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Optional, Tuple
@@ -43,6 +44,16 @@ class VersionUpdateRegex:
     regex: re.Pattern
     version_update: VersionUpdateEnum
     commit_type: CommitType
+
+
+@dataclass
+class VersionPreview:
+    previous_version: semver.Version
+    new_version: semver.Version
+    start_commit: Optional[git.Commit]
+    end_commit: git.Commit
+    changelog: dict[Optional[str], dict[CommitType, list[str]]]
+    rendered_changelog_markdown: str
 
 
 class SemanticVersioner:
@@ -114,12 +125,27 @@ class SemanticVersioner:
         no_fetch: bool,
         main_branch: str,
         include_shorter_versions: bool,
+        preview: bool = False,
     ):
         self._repository = git.Repo(repository_path)
         self._no_fetch = no_fetch
         self._main_branch = main_branch
         self._main_head_commit: Optional[git.Commit] = None
         self._include_shorter_versions = include_shorter_versions
+        # When True, the versioner is in read-only preview mode and must never
+        # mutate the local repository or the remote (no commits, tags or pushes).
+        self._preview = preview
+
+    def _ensure_not_preview(self, operation: str) -> None:
+        """
+        Guard against any mutating operation while in preview mode.
+        :param operation: A human-readable description of the attempted mutation
+        :raises RuntimeError: If the versioner is in preview mode
+        """
+        if self._preview:
+            raise RuntimeError(
+                f"Refusing to {operation} in preview mode (preview is read-only)"
+            )
 
     def initialize(self) -> bool:
         """
@@ -142,17 +168,17 @@ class SemanticVersioner:
         self,
         branch_name: str,
         changelog_file: str,
-        version: semver.Version,
-        changelog: dict[Optional[str], dict[CommitType, list[str]]],
+        rendered_changelog_markdown: str,
     ) -> git.Commit:
         """
         Write the changelog to the specified file
         :param branch_name: The name of the branch to write the changelog for
         :param changelog_file: The file to write the changelog to
-        :param version: The version the changelog is for
-        :param changelog: The changelog to write
+        :param rendered_changelog_markdown: The rendered changelog markdown to write
         :return: The commit object for the new commit
         """
+        self._ensure_not_preview("write the changelog")
+
         existing_changelog = None
 
         log.info(f"Writing changelog file to {changelog_file}")
@@ -162,16 +188,7 @@ class SemanticVersioner:
                 existing_changelog = fd.read()
 
         with open(changelog_file, "w") as fd:
-            fd.write(f"## {version} ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M')})\n")
-            for scope, commits in sorted(changelog.items(), key=lambda x: (x[0] is None, x[0])):
-                if not scope:
-                    scope = "Other"
-                fd.write(f"\n### {scope}\n")
-                for commit_type, messages in sorted(commits.items(), key=lambda x: x[0]):
-                    if messages:
-                        fd.write(f"\n#### {commit_type.name}\n")
-                        for message in messages:
-                            fd.write(f"- {message}\n")
+            fd.write(rendered_changelog_markdown)
             if existing_changelog:
                 fd.write("\n")
                 fd.write(existing_changelog)
@@ -179,11 +196,43 @@ class SemanticVersioner:
         log.info("Committing changelog")
         self._repository.git.checkout(branch_name)
         self._repository.index.add([changelog_file])
+        version_header = rendered_changelog_markdown.splitlines()[0]
+        version = version_header.split()[1]
         new_commit = self._repository.index.commit(f"Update changelog for {version}")
         origin = self._repository.remote(name="origin")
         origin.push(branch_name)
 
         return new_commit
+
+    @staticmethod
+    def render_changelog_markdown(
+        version: semver.Version,
+        changelog: dict[Optional[str], dict[CommitType, list[str]]],
+        rendered_at: Optional[datetime.datetime] = None,
+    ) -> str:
+        """
+        Render changelog markdown in the same format used for changelog files
+        :param version: The version the changelog is for
+        :param changelog: The changelog structure to render
+        :param rendered_at: The timestamp to place in the header
+        :return: Rendered markdown
+        """
+        if rendered_at is None:
+            rendered_at = datetime.datetime.now()
+
+        lines = [f"## {version} ({rendered_at.strftime('%Y-%m-%d %H:%M')})"]
+        for scope, commits in sorted(changelog.items(), key=lambda x: (x[0] is None, x[0])):
+            lines.append("")
+            lines.append(f"### {scope or 'Other'}")
+            for commit_type, messages in sorted(commits.items(), key=lambda x: x[0]):
+                if not messages:
+                    continue
+                lines.append("")
+                lines.append(f"#### {commit_type.name}")
+                for message in messages:
+                    lines.append(f"- {message}")
+
+        return "\n".join(lines) + "\n"
 
     def generate_changelog(
         self,
@@ -213,9 +262,11 @@ class SemanticVersioner:
             commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
         for commit in commits:
             commit_message = commit.message
+            if isinstance(commit_message, bytes):
+                commit_message = commit_message.decode("utf-8")
             changelog_messages = []
             version_update = None
-            scopes = []
+            scopes: list[Optional[str]] = []
             commit_type = CommitType.OTHER
             for line in commit_message.splitlines():
                 if not line:
@@ -310,52 +361,37 @@ class SemanticVersioner:
         :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
-        (latest_version, latest_version_commit) = self._get_latest_version(
-            self._main_head_commit, False
+        preview = self.get_main_preview(
+            changelog_message=changelog_message,
         )
-
-        if latest_version is None:
-            log.warning("No previous version found, assuming v0.0.0")
-            latest_version = semver.Version.parse("0.0.0")
-            latest_version_commit = None
-
-        if latest_version_commit == self._main_head_commit:
-            log.error(
-                "Cannot add new version tag to commit that already has a version tag"
-            )
+        if preview is None:
             return False
 
-        version_update_type = self._get_version_update_type(
-            latest_version_commit,
-            self._main_head_commit,
-        )
         self._output_result(
             "previous-version",
-            self._get_version_strings(latest_version)[0],
+            self._get_version_strings(preview.previous_version)[0],
         )
-
-        new_version = self._bump_version(latest_version, version_update_type)
-
         self._output_result(
             "new-version",
-            self._get_version_strings(new_version)[0],
+            self._get_version_strings(preview.new_version)[0],
         )
 
         if dry_run:
-            log.info(f"Dry run: would create version {new_version}")
+            log.info(f"Dry run: would create version {preview.new_version}")
             return True
 
+        if self._main_head_commit is None:
+            log.error("No main branch head commit found")
+            return False
+
         if changelog_file:
-            changelog = self.generate_changelog(
-                latest_version_commit,
-                self._main_head_commit,
-                changelog_message,
-            )
             self._main_head_commit = self.write_changelog(
-                self._main_branch, changelog_file, new_version, changelog
+                self._main_branch,
+                changelog_file,
+                preview.rendered_changelog_markdown,
             )
 
-        return self._add_version_tags_to_commit(self._main_head_commit, new_version)
+        return self._add_version_tags_to_commit(self._main_head_commit, preview.new_version)
 
     def add_dev_tags(
         self,
@@ -376,8 +412,106 @@ class SemanticVersioner:
         :param dry_run: If True, only calculate and output the version without making changes
         :return: Whether the process was successful
         """
-        dev_head_commit = self._get_branch_head_commit(dev_branch)
-        (latest_main_version, latest_main_version_commit) = self._get_latest_version(
+        preview = self.get_dev_preview(
+            dev_branch=dev_branch,
+            dev_suffix=dev_suffix,
+            dev_version_style=dev_version_style,
+            changelog_message=changelog_message,
+        )
+        if preview is None:
+            return False
+
+        dev_head_commit = preview.end_commit
+
+        self._output_result(
+            "previous-version",
+            self._get_version_strings(preview.previous_version)[0],
+        )
+        self._output_result(
+            "new-version",
+            self._get_version_strings(preview.new_version)[0],
+        )
+
+        if dry_run:
+            log.info(f"Dry run: would create version {preview.new_version}")
+            return True
+
+        if changelog_file:
+            dev_head_commit = self.write_changelog(
+                dev_branch,
+                changelog_file,
+                preview.rendered_changelog_markdown,
+            )
+
+        log.info(f"Adding tags for {preview.new_version} on {dev_head_commit}")
+        return self._add_version_tags_to_commit(dev_head_commit, preview.new_version)
+
+    def get_main_preview(
+        self,
+        changelog_message: Optional[str] = None,
+        target_ref: Optional[str] = None,
+    ) -> Optional[VersionPreview]:
+        target_commit = self._resolve_target_commit(target_ref, self._main_head_commit)
+        if not target_commit:
+            return None
+
+        (latest_version, latest_version_commit) = self._get_latest_version(
+            target_commit, False
+        )
+
+        if latest_version is None:
+            log.warning("No previous version found, assuming v0.0.0")
+            latest_version = semver.Version.parse("0.0.0")
+            latest_version_commit = None
+
+        if latest_version_commit == target_commit:
+            log.error(
+                "Cannot add new version tag to commit that already has a version tag"
+            )
+            return None
+
+        version_update_type = self._get_version_update_type(
+            latest_version_commit,
+            target_commit,
+        )
+        new_version = self._bump_version(latest_version, version_update_type)
+        changelog = self.generate_changelog(
+            latest_version_commit,
+            target_commit,
+            changelog_message,
+        )
+        return VersionPreview(
+            previous_version=latest_version,
+            new_version=new_version,
+            start_commit=latest_version_commit,
+            end_commit=target_commit,
+            changelog=changelog,
+            rendered_changelog_markdown=self.render_changelog_markdown(
+                new_version,
+                changelog,
+            ),
+        )
+
+    def get_dev_preview(
+        self,
+        dev_branch: str,
+        dev_suffix: str,
+        dev_version_style: DevVersionStyle,
+        changelog_message: Optional[str] = None,
+        target_ref: Optional[str] = None,
+    ) -> Optional[VersionPreview]:
+        dev_head_commit = self._resolve_target_commit(
+            target_ref,
+            self._get_branch_head_commit(dev_branch),
+        )
+        if not dev_head_commit:
+            return None
+
+        if self._main_head_commit is None:
+            log.error("No main branch head commit found")
+            return None
+
+        (latest_main_version, _) = self._get_latest_version(
             self._main_head_commit, False
         )
         (latest_dev_version, latest_dev_version_commit) = self._get_latest_version(
@@ -387,7 +521,6 @@ class SemanticVersioner:
         if latest_main_version is None:
             log.warning("No previous main version found, assuming v0.0.0")
             latest_main_version = semver.Version.parse("0.0.0")
-            latest_main_version_commit = None
 
         if latest_dev_version is None:
             log.warning("No previous dev version found, assuming v0.0.0")
@@ -398,7 +531,7 @@ class SemanticVersioner:
             log.error(
                 "Cannot add new version tag to commit that already has a version tag"
             )
-            return False
+            return None
 
         common_ancestors = self._repository.merge_base(
             self._main_head_commit,
@@ -408,7 +541,7 @@ class SemanticVersioner:
             log.error(
                 f"Could not find a single common ancestor between {dev_head_commit} and {self._main_head_commit}"
             )
-            return False
+            return None
 
         version_update_type = self._get_version_update_type(
             common_ancestors[0],
@@ -424,11 +557,6 @@ class SemanticVersioner:
         log.debug(f"Latest dev version: {latest_dev_version}")
         log.debug(f"Version update type: {version_update_type}")
         log.debug(f"Dev version update type: {dev_version_update_type}")
-
-        self._output_result(
-            "previous-version",
-            self._get_version_strings(latest_dev_version)[0],
-        )
 
         new_dev_version = self._bump_version(latest_main_version, version_update_type)
         latest_dev_version_prerelease_bits = []
@@ -530,36 +658,29 @@ class SemanticVersioner:
 
             log.debug(f"New dev version: {new_dev_version}")
 
-        self._output_result(
-            "new-version",
-            self._get_version_strings(new_dev_version)[0],
+        changelog = self.generate_changelog(
+            latest_dev_version_commit,
+            dev_head_commit,
+            changelog_message,
         )
-
-        if dry_run:
-            log.info(f"Dry run: would create version {new_dev_version}")
-            return True
-
-        if changelog_file:
-            changelog = self.generate_changelog(
-                latest_dev_version_commit,
-                dev_head_commit,
-                changelog_message,
-            )
-            dev_head_commit = self.write_changelog(
-                dev_branch,
-                changelog_file,
+        return VersionPreview(
+            previous_version=latest_dev_version,
+            new_version=new_dev_version,
+            start_commit=latest_dev_version_commit,
+            end_commit=dev_head_commit,
+            changelog=changelog,
+            rendered_changelog_markdown=self.render_changelog_markdown(
                 new_dev_version,
                 changelog,
-            )
-
-        log.info(f"Adding tags for {new_dev_version} on {dev_head_commit}")
-        return self._add_version_tags_to_commit(dev_head_commit, new_dev_version)
+            ),
+        )
 
     def push_tags(self) -> bool:
         """
         Push all tags to the remote repository
         :return: Whether the process was successful
         """
+        self._ensure_not_preview("push tags")
         self._repository.git.push("origin", "--tags")
         return True
 
@@ -574,6 +695,8 @@ class SemanticVersioner:
         :param version: The version to use for the tag name
         :return: Whether this process was successful
         """
+        self._ensure_not_preview("create version tags")
+
         existing_tags = {tag.name: tag for tag in self._repository.tags}
         tag_names = self._get_version_strings(version)
 
@@ -628,11 +751,7 @@ class SemanticVersioner:
         :return: The VersionUpdateEnum value specifying the type of version update
         """
         version_update = VersionUpdateEnum.PATCH
-        if start_commit is None:
-            commits = self._repository.iter_commits(end_commit)
-        else:
-            commits = self._repository.iter_commits(f"{start_commit}..{end_commit}")
-        for commit in commits:
+        for commit in self._iter_commits_between(start_commit, end_commit):
             commit_message = commit.message
             for line in commit_message.splitlines():
                 for version_update_regex in self._version_update_regexes:
@@ -659,7 +778,7 @@ class SemanticVersioner:
 
         log.info(f"Finding latest tag on {commit}")
 
-        tags = []
+        tags: list[Tuple[semver.Version, git.TagReference]] = []
         for tag in self._repository.tags:
             try:
                 version = semver.Version.parse(tag.name[len(self._version_prefix) :])
@@ -669,21 +788,45 @@ class SemanticVersioner:
             if version.prerelease and not include_prerelease:
                 continue
 
-            tags.append({"tag": tag, "version": version})
+            tags.append((version, tag))
 
-        for tag in sorted(tags, key=lambda t: t["version"], reverse=True):
-            log.debug(f"Checking tag {tag['tag'].name} on {tag['tag'].commit}")
+        for tag_version, tag_ref in sorted(tags, key=lambda t: t[0], reverse=True):
+            log.debug(f"Checking tag {tag_ref.name} on {tag_ref.commit}")
             common_ancestors = self._repository.merge_base(
-                tag["tag"].commit,
+                tag_ref.commit,
                 commit,
             )
 
-            if len(common_ancestors) == 1 and common_ancestors[0] == tag["tag"].commit:
-                log.info(f"Returning version: {tag['version']}")
-                return tag["version"], tag["tag"].commit
+            if len(common_ancestors) == 1 and common_ancestors[0] == tag_ref.commit:
+                log.info(f"Returning version: {tag_version}")
+                return tag_version, tag_ref.commit
 
         log.warning(f"Not found latest version on {commit}")
         return None, None
+
+    def _resolve_target_commit(
+        self,
+        target_ref: Optional[str],
+        default_commit: Optional[git.Commit],
+    ) -> Optional[git.Commit]:
+        if target_ref is None:
+            return default_commit
+
+        log.info(f"Resolving target ref: {target_ref}")
+        try:
+            return self._repository.commit(target_ref)
+        except (git.BadName, ValueError):
+            log.error(f"Target ref not found: {target_ref}")
+            return None
+
+    def _iter_commits_between(
+        self,
+        start_commit: Optional[git.Commit],
+        end_commit: git.Commit,
+    ):
+        if start_commit is None:
+            return self._repository.iter_commits(end_commit)
+        return self._repository.iter_commits(f"{start_commit}..{end_commit}")
 
     def _get_version_strings(self, version: semver.Version) -> list[str]:
         suffix = ""
@@ -738,7 +881,11 @@ class SemanticVersioner:
             return
 
         with open(github_output, "a") as fd:
-            fd.write(f"{name}={value}\n")
+            if "\n" in value:
+                delimiter = f"EOF_{uuid.uuid4().hex}"
+                fd.write(f"{name}<<{delimiter}\n{value}{delimiter}\n")
+            else:
+                fd.write(f"{name}={value}\n")
 
 
 def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
@@ -828,6 +975,34 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         ),
         help="Only calculate and output the version without creating tags or writing changelog",
     )
+    parser.add_argument(
+        "--preview-changelog",
+        action="store_true",
+        default=(
+            os.getenv("PREVIEW_CHANGELOG", "0").lower()
+            in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Preview the current changelog section and version without mutating git state",
+    )
+    parser.add_argument(
+        "--target-ref",
+        default=os.getenv("TARGET_REF"),
+        help="Target ref or commit to preview instead of the current branch head",
+    )
+    parser.add_argument(
+        "--print-changelog",
+        action="store_true",
+        default=(
+            os.getenv("PRINT_CHANGELOG", "0").lower()
+            in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help="Print the rendered changelog markdown to stdout",
+    )
+    parser.add_argument(
+        "--preview-output-file",
+        default=os.getenv("PREVIEW_OUTPUT_FILE"),
+        help="Write the rendered preview changelog markdown to this file",
+    )
 
     result = parser.parse_args(args)
 
@@ -835,7 +1010,37 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         parser.print_help()
         return None
 
+    if result.target_ref and not result.preview_changelog:
+        parser.error("--target-ref requires --preview-changelog")
+
     return result
+
+
+def _write_preview_outputs(
+    versioner: SemanticVersioner,
+    preview: VersionPreview,
+    print_changelog: bool,
+    preview_output_file: Optional[str],
+) -> None:
+    versioner._output_result(
+        "previous-version",
+        versioner._get_version_strings(preview.previous_version)[0],
+    )
+    versioner._output_result(
+        "new-version",
+        versioner._get_version_strings(preview.new_version)[0],
+    )
+    versioner._output_result(
+        "rendered-changelog",
+        preview.rendered_changelog_markdown,
+    )
+
+    if print_changelog:
+        sys.stdout.write(preview.rendered_changelog_markdown)
+
+    if preview_output_file:
+        with open(preview_output_file, "w") as fd:
+            fd.write(preview.rendered_changelog_markdown)
 
 
 def main(argv: list[str]) -> int:
@@ -847,12 +1052,50 @@ def main(argv: list[str]) -> int:
     log.info(f"Main branch: {args.main_branch}")
     log.info(f"Changelog file: {args.changelog_file}")
     log.info(f"Dry run: {args.dry_run}")
+    log.info(f"Preview changelog: {args.preview_changelog}")
 
     versioner = SemanticVersioner(
-        args.repository, args.no_fetch, args.main_branch, args.include_shorter_versions
+        args.repository,
+        args.no_fetch,
+        args.main_branch,
+        args.include_shorter_versions,
+        preview=args.preview_changelog,
     )
     if not versioner.initialize():
         return 1
+
+    if args.preview_changelog:
+        if args.dev_branch:
+            log.info(f"Dev branch: {args.dev_branch}")
+            log.info(f"Dev suffix: {args.dev_suffix}")
+            log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
+            preview = versioner.get_dev_preview(
+                args.dev_branch,
+                args.dev_suffix,
+                (
+                    DevVersionStyle.SEMANTIC
+                    if args.use_semantic_dev_versions
+                    else DevVersionStyle.INCREMENTING
+                ),
+                args.changelog_message,
+                args.target_ref,
+            )
+        else:
+            preview = versioner.get_main_preview(
+                args.changelog_message,
+                args.target_ref,
+            )
+
+        if preview is None:
+            return 1
+
+        _write_preview_outputs(
+            versioner,
+            preview,
+            args.print_changelog,
+            args.preview_output_file,
+        )
+        return 0
 
     if args.dev_branch:
         log.info(f"Dev branch: {args.dev_branch}")

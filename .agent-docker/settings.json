@@ -1,0 +1,5 @@
+{
+    "host_commands": [
+        "poetry run mypy"
+    ]
+}

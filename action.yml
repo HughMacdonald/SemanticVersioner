@@ -43,6 +43,22 @@ inputs:
     description: Only calculate and output the version without creating tags or writing changelog
     required: false
     default: "false"
+  preview-changelog:
+    description: Preview the current changelog section and version without mutating git state
+    required: false
+    default: "false"
+  target-ref:
+    description: Target ref or commit to preview instead of the current branch head
+    required: false
+    default: ""
+  print-changelog:
+    description: Print the rendered preview changelog markdown to stdout
+    required: false
+    default: "false"
+  preview-output-file:
+    description: Write the rendered preview changelog markdown to this file
+    required: false
+    default: ""
 
 outputs:
   previous-version:
@@ -54,6 +70,9 @@ outputs:
       The new version after the version was incremented. This may be the same as the previous
       version.
     value: ${{ steps.increment-version.outputs.new-version }}
+  rendered-changelog:
+    description: The rendered current changelog section produced by preview mode
+    value: ${{ steps.increment-version.outputs.rendered-changelog }}
 
 runs:
   using: "composite"
@@ -86,7 +105,11 @@ runs:
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         CHANGELOG_MESSAGE: ${{ inputs.changelog-message }}
         DRY_RUN: ${{ inputs.dry-run }}
-        PUSH: 1
+        PREVIEW_CHANGELOG: ${{ inputs.preview-changelog }}
+        TARGET_REF: ${{ inputs.target-ref }}
+        PRINT_CHANGELOG: ${{ inputs.print-changelog }}
+        PREVIEW_OUTPUT_FILE: ${{ inputs.preview-output-file }}
+        PUSH: ${{ (contains(fromJSON('["1", "y", "yes", "on", "true", "t"]'), inputs.preview-changelog) || contains(fromJSON('["1", "y", "yes", "on", "true", "t"]'), inputs.dry-run)) && '0' || '1' }}
 
 branding:
   color: blue
