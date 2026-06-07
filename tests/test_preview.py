@@ -151,9 +151,61 @@ class SemanticVersionerPreviewTests(unittest.TestCase):
 
         self.assertIsNotNone(preview)
         self.assertEqual(str(preview.previous_version), "1.3.0-dev.0.0.1")
-        self.assertEqual(str(preview.new_version), "1.3.0-dev.0.0.1")
+        self.assertEqual(str(preview.new_version), "1.3.0-dev.0.0.2")
         self.assertIn("### Ui", preview.rendered_changelog_markdown)
         self.assertIn("- Fixed dashboard spacing", preview.rendered_changelog_markdown)
+
+    def test_dev_preview_target_ref_increments_existing_dev_prerelease(self):
+        """A preview against a PR merge ref must increment the existing latest
+        dev prerelease bits, not recompute them from scratch. Given latest dev
+        2.3.0-dev.0.1.2 and a patch-level PR, the preview must return
+        2.3.0-dev.0.1.3 and equal the non-preview computation for the same
+        target commit."""
+        repo = self.init_repo()
+        self.run_git(repo, "tag", "v2.2.0")
+        self.run_git(repo, "checkout", "-b", "develop")
+        # A feat commit means the dev branch is a minor bump over main (2.3.0),
+        # matching the base of the latest dev tag below.
+        dev_base_commit = self.commit_file(
+            repo,
+            "dashboard.txt",
+            "feature\n",
+            "feat(ui): add dashboard\n\nCHANGELOG: Added dashboard",
+        )
+        self.run_git(repo, "tag", "v2.3.0-dev.0.1.2", dev_base_commit)
+        # A patch-level PR on top of the latest dev tag.
+        patch_commit = self.commit_file(
+            repo,
+            "spacing.txt",
+            "fix\n",
+            "fix(ui): align spacing\n\nCHANGELOG: Fixed dashboard spacing",
+        )
+        self.run_git(repo, "update-ref", "refs/pull/1/merge", patch_commit)
+
+        versioner = self.build_versioner(repo)
+        with mock.patch.object(semantic_main.datetime, "datetime", FixedDateTime):
+            preview = versioner.get_dev_preview(
+                dev_branch="develop",
+                dev_suffix="dev",
+                dev_version_style=semantic_main.DevVersionStyle.SEMANTIC,
+                target_ref="refs/pull/1/merge",
+            )
+            # The non-preview computation walks the same routine via the dev
+            # branch head, which is the same commit as the PR merge ref here.
+            non_preview = versioner.get_dev_preview(
+                dev_branch="develop",
+                dev_suffix="dev",
+                dev_version_style=semantic_main.DevVersionStyle.SEMANTIC,
+            )
+
+        self.assertIsNotNone(preview)
+        self.assertEqual(preview.end_commit.hexsha, patch_commit)
+        self.assertEqual(str(preview.previous_version), "2.3.0-dev.0.1.2")
+        self.assertEqual(str(preview.new_version), "2.3.0-dev.0.1.3")
+        # Preview output must match what an actual merge would produce.
+        self.assertEqual(
+            str(preview.new_version), str(non_preview.new_version)
+        )
 
     def test_arbitrary_target_ref_preview(self):
         repo = self.init_repo()
