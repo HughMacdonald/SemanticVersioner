@@ -262,6 +262,85 @@ class SemanticVersionerPreviewTests(unittest.TestCase):
         self.assertEqual(self.run_git(repo, "tag", "--list"), tags_before)
         self.assertEqual(self.run_git(repo, "status", "--porcelain"), status_before)
 
+    def test_preview_succeeds_without_push_credentials(self):
+        """Preview mode must not attempt any push, even when the action forces
+        PUSH=1 and the remote is unreachable / read-only (mirrors a
+        pull_request_target job with a read-only token)."""
+        repo = self.init_repo()
+        self.run_git(repo, "tag", "v1.0.0")
+        self.commit_file(
+            repo,
+            "feature.txt",
+            "feature\n",
+            "feat(api): add endpoint\n\nCHANGELOG: Added API endpoint",
+        )
+
+        # An unreachable remote: any push attempt would fail loudly, so a
+        # successful run proves no push (or tag deletion) was attempted.
+        self.run_git(
+            repo,
+            "remote",
+            "add",
+            "origin",
+            "https://invalid.invalid/owner/repo.git",
+        )
+
+        tags_before = self.run_git(repo, "tag", "--list")
+
+        github_output = repo / "github_output.txt"
+        env = os.environ.copy()
+        env["GITHUB_OUTPUT"] = str(github_output)
+        # Replicate action.yml, which forces PUSH=1 for the non-preview path.
+        env["PUSH"] = "1"
+
+        with mock.patch.dict(os.environ, env, clear=True):
+            with mock.patch.object(semantic_main.datetime, "datetime", FixedDateTime):
+                exit_code = semantic_main.main(
+                    [
+                        "--repository",
+                        str(repo),
+                        "--no-fetch",
+                        "--preview-changelog",
+                    ]
+                )
+
+        self.assertEqual(exit_code, 0)
+        outputs = self.parse_github_output(github_output)
+        self.assertEqual(outputs["previous-version"], "v1.0.0")
+        self.assertEqual(outputs["new-version"], "v1.1.0")
+        self.assertIn("- Added API endpoint", outputs["rendered-changelog"])
+        # No new tags were created locally and the run did not error on push.
+        self.assertEqual(self.run_git(repo, "tag", "--list"), tags_before)
+
+    def test_mutating_methods_refuse_in_preview_mode(self):
+        """The centralised guard must block every write path in preview mode."""
+        repo = self.init_repo()
+        versioner = semantic_main.SemanticVersioner(
+            str(repo),
+            True,
+            "main",
+            False,
+            preview=True,
+        )
+        self.assertTrue(versioner.initialize())
+
+        with self.assertRaises(RuntimeError):
+            versioner.push_tags()
+
+        with self.assertRaises(RuntimeError):
+            versioner.write_changelog("main", str(repo / "CHANGELOG.md"), "## 1.0.0\n")
+
+        with self.assertRaises(RuntimeError):
+            versioner._add_version_tags_to_commit(
+                versioner._main_head_commit,
+                semantic_main.semver.Version.parse("1.0.0"),
+            )
+
+        # The guard must not leak into normal (non-preview) operation.
+        self.assertFalse(
+            semantic_main.SemanticVersioner(str(repo), True, "main", False)._preview
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
