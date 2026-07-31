@@ -43,6 +43,21 @@ inputs:
     description: Only calculate and output the version without creating tags or writing changelog
     required: false
     default: "false"
+  allow-tag-move:
+    description: >
+      Allow force-moving the unique full release tag if it already exists on the remote at a
+      different commit. Off by default so a concurrent or duplicate run can never repoint a
+      published release tag. This does not affect the rolling alias tags from
+      include-shorter-versions (e.g. v1, v1.2), which always advance to each new release.
+    required: false
+    default: "false"
+  stale-trigger:
+    description: >
+      How to handle a run whose checked-out HEAD no longer matches the live remote tip of the
+      target branch (a superseded or duplicate trigger). One of ignore (default, proceed), skip
+      (exit successfully without mutating), or fail (exit non-zero).
+    required: false
+    default: ignore
   preview-changelog:
     description: Preview the current changelog section and version without mutating git state
     required: false
@@ -106,6 +121,8 @@ runs:
         CHANGELOG_FILE: ${{ inputs.changelog-file }}
         CHANGELOG_MESSAGE: ${{ inputs.changelog-message }}
         DRY_RUN: ${{ inputs.dry-run }}
+        ALLOW_TAG_MOVE: ${{ inputs.allow-tag-move }}
+        STALE_TRIGGER: ${{ inputs.stale-trigger }}
         PREVIEW_CHANGELOG: ${{ inputs.preview-changelog }}
         TARGET_REF: ${{ inputs.target-ref }}
         PRINT_CHANGELOG: ${{ inputs.print-changelog }}
