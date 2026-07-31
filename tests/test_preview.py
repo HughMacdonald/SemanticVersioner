@@ -377,7 +377,7 @@ class SemanticVersionerPreviewTests(unittest.TestCase):
         self.assertTrue(versioner.initialize())
 
         with self.assertRaises(RuntimeError):
-            versioner.push_tags()
+            versioner._push_branch("main")
 
         with self.assertRaises(RuntimeError):
             versioner.write_changelog("main", str(repo / "CHANGELOG.md"), "## 1.0.0\n")
