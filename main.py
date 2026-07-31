@@ -22,6 +22,18 @@ stream_handler.setFormatter(
 log.addHandler(stream_handler)
 
 
+class SemanticVersionerError(RuntimeError):
+    """Base class for fatal, user-facing errors raised by the versioner."""
+
+
+class BranchPushError(SemanticVersionerError):
+    """A push of a branch or tag to the remote was rejected."""
+
+
+class TagConflictError(SemanticVersionerError):
+    """A remote tag already exists on a different commit and must not be moved."""
+
+
 class CommitType(IntEnum):
     OTHER = 0
     FIX = 1
@@ -119,6 +131,16 @@ class SemanticVersioner:
     # semver.Version object
     _version_prefix = "v"
 
+    # Push flags that indicate the remote refused (or partially refused) a push.
+    # With --porcelain, GitPython reports these on the returned PushInfo objects,
+    # which is far more reliable than scraping git's stderr text.
+    _push_error_flags = (
+        git.PushInfo.ERROR
+        | git.PushInfo.REJECTED
+        | git.PushInfo.REMOTE_REJECTED
+        | git.PushInfo.REMOTE_FAILURE
+    )
+
     def __init__(
         self,
         repository_path: str,
@@ -126,6 +148,7 @@ class SemanticVersioner:
         main_branch: str,
         include_shorter_versions: bool,
         preview: bool = False,
+        allow_tag_move: bool = False,
     ):
         self._repository = git.Repo(repository_path)
         self._no_fetch = no_fetch
@@ -135,6 +158,13 @@ class SemanticVersioner:
         # When True, the versioner is in read-only preview mode and must never
         # mutate the local repository or the remote (no commits, tags or pushes).
         self._preview = preview
+        # When True, the unique full release tag may be force-moved if it already
+        # exists on the remote at a different commit. When False (the default) the
+        # release tag is left untouched and the run fails, so a concurrent or
+        # duplicate run can never silently repoint a published release tag. This
+        # does not affect the rolling alias tags from include_shorter_versions,
+        # which always advance to each new release.
+        self._allow_tag_move = allow_tag_move
 
     def _ensure_not_preview(self, operation: str) -> None:
         """
@@ -199,10 +229,76 @@ class SemanticVersioner:
         version_header = rendered_changelog_markdown.splitlines()[0]
         version = version_header.split()[1]
         new_commit = self._repository.index.commit(f"Update changelog for {version}")
-        origin = self._repository.remote(name="origin")
-        origin.push(branch_name)
+
+        self._push_branch(branch_name)
 
         return new_commit
+
+    def _push_branch(self, branch_name: str) -> None:
+        """
+        Push a branch to origin and fail loudly if the remote rejected it.
+
+        A rejected branch push (for example a non-fast-forward caused by a
+        concurrent run that already advanced the branch) must be fatal: the
+        commit does not exist on the remote afterwards, so anything that follows
+        (in particular tagging that commit) would be invalid.
+        :param branch_name: The branch to push
+        :raises BranchPushError: If the remote rejected the push
+        """
+        self._ensure_not_preview("push a branch")
+        log.info(f"Pushing branch '{branch_name}' to origin")
+        self._push_ref(branch_name, f"branch '{branch_name}'")
+
+    def _push_ref(self, refspec: str, ref_description: str) -> None:
+        """
+        Push a single refspec to origin and fail loudly if it was rejected.
+
+        Handles both ways GitPython can surface a rejection: a raised
+        GitCommandError, or PushInfo objects carrying error flags.
+        :param refspec: The refspec to push (e.g. a branch name or
+        ``refs/tags/<tag>``, optionally prefixed with ``+`` to force)
+        :param ref_description: Human-readable description of what is pushed,
+        included verbatim in any error so the rejected ref is named
+        :raises BranchPushError: If the remote rejected the push
+        """
+        origin = self._repository.remote(name="origin")
+        try:
+            push_info = origin.push(refspec)
+        except git.exc.GitCommandError as exc:
+            message = f"Failed to push {ref_description} to origin: {exc}"
+            log.error(message)
+            raise BranchPushError(message) from exc
+        self._raise_for_push_errors(push_info, ref_description)
+
+    @classmethod
+    def _raise_for_push_errors(cls, push_info_list, ref_description: str) -> None:
+        """
+        Inspect the PushInfo results of a push and raise if any ref was rejected.
+
+        GitPython emits a misleading ``"Error lines received while fetching"``
+        warning on a rejected *push*; rather than relying on that text we check
+        the structured ERROR/REJECTED/REMOTE_REJECTED flags on each PushInfo.
+        :param push_info_list: The result of ``Remote.push``
+        :param ref_description: Human-readable description of what was pushed,
+        included verbatim in the error so the rejected ref is named
+        :raises BranchPushError: If any pushed ref reported an error flag
+        """
+        errored = [
+            info
+            for info in push_info_list
+            if info.flags & cls._push_error_flags
+        ]
+        if not errored:
+            return
+
+        summaries = "; ".join(
+            (info.summary or "").strip() for info in errored if info.summary
+        )
+        message = f"Failed to push {ref_description} to origin: rejected by remote"
+        if summaries:
+            message = f"{message} ({summaries})"
+        log.error(message)
+        raise BranchPushError(message)
 
     @staticmethod
     def render_changelog_markdown(
@@ -353,12 +449,14 @@ class SemanticVersioner:
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
         dry_run: bool = False,
+        push: bool = False,
     ) -> bool:
         """
         Add a new version tag to the main branch of this repository
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
         :param dry_run: If True, only calculate and output the version without making changes
+        :param push: If True, push the new tags to the remote as they are created
         :return: Whether the process was successful
         """
         preview = self.get_main_preview(
@@ -391,7 +489,9 @@ class SemanticVersioner:
                 preview.rendered_changelog_markdown,
             )
 
-        return self._add_version_tags_to_commit(self._main_head_commit, preview.new_version)
+        return self._add_version_tags_to_commit(
+            self._main_head_commit, preview.new_version, push
+        )
 
     def add_dev_tags(
         self,
@@ -401,6 +501,7 @@ class SemanticVersioner:
         changelog_file: Optional[str] = None,
         changelog_message: Optional[str] = None,
         dry_run: bool = False,
+        push: bool = False,
     ) -> bool:
         """
         Add a new version tag to the dev branch of this repository
@@ -410,6 +511,7 @@ class SemanticVersioner:
         :param changelog_file: The file to write the changelog to
         :param changelog_message: An optional message to add to the changelog
         :param dry_run: If True, only calculate and output the version without making changes
+        :param push: If True, push the new tags to the remote as they are created
         :return: Whether the process was successful
         """
         preview = self.get_dev_preview(
@@ -444,7 +546,9 @@ class SemanticVersioner:
             )
 
         log.info(f"Adding tags for {preview.new_version} on {dev_head_commit}")
-        return self._add_version_tags_to_commit(dev_head_commit, preview.new_version)
+        return self._add_version_tags_to_commit(
+            dev_head_commit, preview.new_version, push
+        )
 
     def get_main_preview(
         self,
@@ -675,42 +779,179 @@ class SemanticVersioner:
             ),
         )
 
-    def push_tags(self) -> bool:
-        """
-        Push all tags to the remote repository
-        :return: Whether the process was successful
-        """
-        self._ensure_not_preview("push tags")
-        self._repository.git.push("origin", "--tags")
-        return True
-
     def _add_version_tags_to_commit(
         self,
         commit: git.Commit,
         version: semver.Version,
+        push: bool = False,
     ) -> bool:
         """
         Add a version tag to a specific commit
         :param commit: The commit to add the tag to
         :param version: The version to use for the tag name
+        :param push: If True, push each tag to origin as it is created, refusing
+        to move an existing remote release tag unless allow_tag_move is set
         :return: Whether this process was successful
         """
         self._ensure_not_preview("create version tags")
 
-        existing_tags = {tag.name: tag for tag in self._repository.tags}
         tag_names = self._get_version_strings(version)
 
-        for tag_name in tag_names:
-            existing_tag = existing_tags.get(tag_name)
-            if existing_tag:
-                log.info(f"Deleting tag '{tag_name}'")
-                self._repository.delete_tag(existing_tag)
-                self._repository.git.push("--delete", "origin", tag_name)
-
-            log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
-            self._repository.create_tag(tag_name, ref=str(commit))
+        for index, tag_name in enumerate(tag_names):
+            # _get_version_strings returns the unique, immutable full version
+            # tag first, followed by any rolling alias tags produced by
+            # include_shorter_versions (e.g. v1, v1.2, v1-dev). Alias tags are
+            # designed to move to each new release; the full release tag is not.
+            is_alias = index > 0
+            self._create_version_tag(tag_name, commit, push, is_alias)
 
         return True
+
+    def _create_version_tag(
+        self,
+        tag_name: str,
+        commit: git.Commit,
+        push: bool,
+        is_alias: bool,
+    ) -> None:
+        """
+        Create a single version tag and, when pushing, publish it safely.
+
+        When pushing, the tag is published with an explicit, non-destructive
+        ``refs/tags/<tag>`` refspec (never ``--tags`` and never ``--force``). If
+        the tag already exists on the remote pointing at a different commit:
+
+        - for the unique full **release** tag, the run fails (unless
+          allow_tag_move is set) so a concurrent or duplicate run can never
+          delete or repoint a published release tag;
+        - for a rolling **alias** tag (from include_shorter_versions), the tag is
+          force-moved to the new commit, since advancing those aliases every
+          release is exactly what that option is for.
+
+        Either way a tag is only ever created once its commit has landed on the
+        remote (the branch push is confirmed first).
+        :param tag_name: The tag to create
+        :param commit: The commit the tag should point at
+        :param push: Whether to publish the tag to origin
+        :param is_alias: Whether this is a rolling alias tag (vs the release tag)
+        """
+        if not push:
+            # Local-only tagging: no remote interaction at all.
+            self._ensure_local_tag(tag_name, commit)
+            return
+
+        remote_sha = self._remote_tag_commit(tag_name)
+        if remote_sha is not None:
+            if remote_sha == commit.hexsha:
+                log.info(
+                    f"Tag '{tag_name}' already points at {commit} on origin; "
+                    f"nothing to do"
+                )
+                self._ensure_local_tag(tag_name, commit)
+                return
+
+            if not is_alias and not self._allow_tag_move:
+                raise TagConflictError(
+                    f"Refusing to move remote release tag '{tag_name}': it already "
+                    f"exists on origin at {remote_sha} but this run wants it on "
+                    f"{commit.hexsha}. Set allow-tag-move to true to override."
+                )
+
+            reason = "rolling alias tag" if is_alias else "allow-tag-move enabled"
+            log.warning(
+                f"Moving remote tag '{tag_name}' from {remote_sha} to "
+                f"{commit.hexsha} ({reason})"
+            )
+            self._ensure_local_tag(tag_name, commit)
+            self._push_ref(f"+refs/tags/{tag_name}", f"tag '{tag_name}'")
+            return
+
+        # No remote tag yet: create it locally and publish non-destructively.
+        self._ensure_local_tag(tag_name, commit)
+        log.info(f"Pushing tag '{tag_name}' to origin at {commit}")
+        self._push_ref(f"refs/tags/{tag_name}", f"tag '{tag_name}'")
+
+    def _ensure_local_tag(self, tag_name: str, commit: git.Commit) -> None:
+        """
+        Ensure a local tag with the given name points at the given commit,
+        recreating it if it currently points elsewhere.
+        :param tag_name: The tag to create or move locally
+        :param commit: The commit the tag should point at
+        """
+        existing = next(
+            (tag for tag in self._repository.tags if tag.name == tag_name), None
+        )
+        if existing is not None:
+            if existing.commit.hexsha == commit.hexsha:
+                return
+            self._repository.delete_tag(existing)
+
+        log.info(f"Adding tag '{tag_name}' to commit '{commit}'")
+        self._repository.create_tag(tag_name, ref=str(commit))
+
+    def _remote_tag_commit(self, tag_name: str) -> Optional[str]:
+        """
+        Return the commit sha the remote tag points at, or None if the tag does
+        not exist on the remote.
+        :param tag_name: The tag to look up on origin
+        :return: The commit sha (peeled for annotated tags), or None
+        """
+        output = self._repository.git.ls_remote("origin", f"refs/tags/{tag_name}")
+        if not output.strip():
+            return None
+
+        direct: Optional[str] = None
+        peeled: Optional[str] = None
+        for line in output.splitlines():
+            sha, _, ref = line.partition("\t")
+            if ref.endswith("^{}"):
+                peeled = sha
+            else:
+                direct = sha
+
+        # Prefer the peeled sha (the underlying commit of an annotated tag);
+        # for the lightweight tags this action creates, only ``direct`` exists.
+        return peeled or direct
+
+    def is_stale_trigger(self, branch_name: str) -> bool:
+        """
+        Detect whether this run is operating on a superseded commit.
+
+        The checked-out HEAD (typically ``github.sha``) is compared against the
+        live remote tip of the target branch. Duplicate webhook deliveries can
+        launch two runs at the same triggering sha; if another run has already
+        advanced the branch, this one is stale and should not mutate anything.
+        :param branch_name: The target branch to compare against
+        :return: True if HEAD differs from the live remote tip of the branch
+        """
+        try:
+            local_head = self._repository.head.commit.hexsha
+        except (ValueError, git.exc.GitError):
+            return False
+
+        try:
+            output = self._repository.git.ls_remote(
+                "origin", f"refs/heads/{branch_name}"
+            )
+        except git.exc.GitCommandError as exc:
+            log.warning(f"Could not check remote tip of '{branch_name}': {exc}")
+            return False
+
+        if not output.strip():
+            # The branch does not exist on the remote yet; nothing to be stale
+            # against.
+            return False
+
+        remote_tip = output.split()[0]
+        if local_head != remote_tip:
+            log.warning(
+                f"Checked-out HEAD {local_head} does not match the live tip of "
+                f"'{branch_name}' on origin ({remote_tip}); this run is operating "
+                f"on a superseded commit."
+            )
+            return True
+
+        return False
 
     def _get_branch_head_commit(self, branch_name: str) -> Optional[git.Commit]:
         """
@@ -976,6 +1217,30 @@ def parse_args(args: list[str]) -> Optional[argparse.Namespace]:
         help="Only calculate and output the version without creating tags or writing changelog",
     )
     parser.add_argument(
+        "--allow-tag-move",
+        action="store_true",
+        default=(
+            os.getenv("ALLOW_TAG_MOVE", "0").lower()
+            in ["1", "on", "yes", "y", "true", "t"]
+        ),
+        help=(
+            "Allow force-moving an existing remote tag that points at a different "
+            "commit. Off by default so a concurrent or duplicate run can never "
+            "repoint a published tag."
+        ),
+    )
+    parser.add_argument(
+        "--stale-trigger",
+        choices=["ignore", "skip", "fail"],
+        default=os.getenv("STALE_TRIGGER", "ignore"),
+        help=(
+            "How to handle a run whose checked-out HEAD no longer matches the live "
+            "remote tip of the target branch (a superseded/duplicate trigger). "
+            "'ignore' (default) proceeds, 'skip' exits 0 without mutating, 'fail' "
+            "exits non-zero."
+        ),
+    )
+    parser.add_argument(
         "--preview-changelog",
         action="store_true",
         default=(
@@ -1060,6 +1325,7 @@ def main(argv: list[str]) -> int:
         args.main_branch,
         args.include_shorter_versions,
         preview=args.preview_changelog,
+        allow_tag_move=args.allow_tag_move,
     )
     if not versioner.initialize():
         return 1
@@ -1097,35 +1363,57 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
-    if args.dev_branch:
-        log.info(f"Dev branch: {args.dev_branch}")
-        log.info(f"Dev suffix: {args.dev_suffix}")
-        log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
+    # Stale-trigger safeguard: bail out before mutating anything if this run is
+    # operating on a commit that a concurrent/duplicate run has already
+    # superseded on the target branch.
+    if not args.dry_run and args.stale_trigger != "ignore":
+        target_branch = args.dev_branch or args.main_branch
+        if versioner.is_stale_trigger(target_branch):
+            if args.stale_trigger == "fail":
+                log.error(
+                    "Refusing to run against a superseded commit "
+                    "(stale-trigger=fail)"
+                )
+                return 1
+            log.warning(
+                "Skipping run against a superseded commit (stale-trigger=skip)"
+            )
+            return 0
 
-        if not versioner.add_dev_tags(
-            args.dev_branch,
-            args.dev_suffix,
-            (
-                DevVersionStyle.SEMANTIC
-                if args.use_semantic_dev_versions
-                else DevVersionStyle.INCREMENTING
-            ),
-            args.changelog_file,
-            args.changelog_message,
-            args.dry_run,
-        ):
-            return 1
-    else:
-        if not versioner.add_main_tags(
-            args.changelog_file,
-            args.changelog_message,
-            args.dry_run,
-        ):
-            return 1
+    push = args.push and not args.dry_run
 
-    if args.push and not args.dry_run:
-        if not versioner.push_tags():
-            return 1
+    try:
+        if args.dev_branch:
+            log.info(f"Dev branch: {args.dev_branch}")
+            log.info(f"Dev suffix: {args.dev_suffix}")
+            log.info(f"Using semantic dev versions: {args.use_semantic_dev_versions}")
+
+            if not versioner.add_dev_tags(
+                args.dev_branch,
+                args.dev_suffix,
+                (
+                    DevVersionStyle.SEMANTIC
+                    if args.use_semantic_dev_versions
+                    else DevVersionStyle.INCREMENTING
+                ),
+                args.changelog_file,
+                args.changelog_message,
+                args.dry_run,
+                push,
+            ):
+                return 1
+        else:
+            if not versioner.add_main_tags(
+                args.changelog_file,
+                args.changelog_message,
+                args.dry_run,
+                push,
+            ):
+                return 1
+    except SemanticVersionerError as exc:
+        # These are already logged at ERROR where raised; keep the exit clean.
+        log.error(f"Aborting: {exc}")
+        return 1
 
     return 0
 
