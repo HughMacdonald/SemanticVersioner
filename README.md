@@ -240,3 +240,8 @@ and outputs as before. The differences only surface in the failure and concurren
 ## Author
 
 Hugh Macdonald
+
+
+## License
+
+This project is licensed under Apache 2.0
